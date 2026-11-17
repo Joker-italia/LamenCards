@@ -1,6 +1,6 @@
-export type CardClass = 'Dormienti' | 'Utenti' | 'PROMO' | string;
+export type CardClass = 'Dormienti' | 'Utenti' | 'Festaioli' | 'Scrocconi' | string;
 
-export type CardRarity = 'Comune' | 'Rara' | 'Olografica';
+export type CardRarity = 'Comune' | 'Rara' | 'PROMO';
 
 export type EffectCategory = 'Aiuto' | 'Ostacolo' | 'Caos';
 
@@ -10,16 +10,35 @@ export type EffectTemplateId =
   | 'NONE'
   | 'GAIN_TOKENS'
   | 'STEAL_TOKENS'
+  | 'LOSE_TARGET_TOKENS'
   | 'CASH_IN_BONUS'
-  | 'NEXT_CARD_DISCOUNT'
-  | 'RETURN_PLAYED_CARD'
-  | 'GRANT_JOKER_DIE'
-  | 'REDUCE_TARGET_ROLLS'
-  | 'REDUCE_ALL_DICE'
-  | 'SHIFT_TARGET_COMBO_TIER'
+  | 'SET_TARGET_NEXT_ROLLS'
+  | 'GAIN_TOKENS_AND_NEXT_ROLLS'
+  | 'PROTECT_FROM_BUY_AND_BOUNCE'
+  | 'OTHERS_FOUR_DICE_ONE_ROUND'
+  | 'SKIP_TARGET_NEXT_TURN'
+  | 'TURN_START_GAIN_TOKENS'
+  | 'GAMBLE_DICE_SWAP'
+  | 'ROLL_2D6_JACKPOT_TOKENS'
+  | 'ALL_ROLL_LOWEST_LOSES_TOKENS'
+  | 'FLIP_DIE_OPPOSITE_ONCE_PER_TURN'
   | 'PASS_UNPLAYED_LEFT'
-  | 'ALL_REDRAW_OBJECTIVE'
-  | 'GAMBLE_DICE_SWAP';
+  | 'FORBID_TARGET_PLAY_NEXT_TURN'
+  | 'INVERT_COMBO_TABLE_ONE_ROUND'
+  | 'ALL_GAIN_TOKENS_SELF_MORE'
+  | 'NO_COMBO_ALTERNATE_COST'
+  | 'GAIN_TOKENS_AND_FREE_MARKET'
+  | 'OTHERS_PAY_TOKEN_OR_4_DICE'
+  | 'ON_OTHER_PLAY_GAIN_TOKEN'
+  | 'ALL_FREE_MARKET_SWAP'
+  | 'PLAY_EXTRA_CARD_NO_COMBO'
+  | 'DISCOUNT_COST_AND_COMBO_TIER'
+  | 'BORROW_TOKENS_REPAY_NEXT_TURN'
+  | 'FREE_IMMEDIATE_MARKET_SWAP'
+  | 'LEFT_NEIGHBOR_CASH_IN_BONUS'
+  | 'PEEK_OBJECTIVE_AND_STEAL'
+  | 'RETURN_PLAYED_CARD'
+  | 'TURN_START_STEAL_FROM_RICHEST';
 
 export interface EffectModel {
   templateId: EffectTemplateId;
@@ -31,10 +50,11 @@ export interface EffectModel {
 
 export interface CardData {
   id: string;
+  baseCardId?: string; // ID univoco del modello carta (per regola blocco personaggi doppi)
   setNumber: number;
-  personName: string; // Nome base dell'amico (es. "Giorgio") per regola unicità persona
-  name: string;       // Titolo/Nome carta (es. "Il Caffè Doppio" o "Giorgio")
-  version: string;    // Eventuale versione (es. "Abile giocatore di carte", "Dormiente")
+  personName: string; // Nome dell'amico (es. "Giorgio", "Mariong")
+  name: string;       // Titolo della carta (es. "Il Pisolino", "Giorgio, abile giocatore di carte")
+  version: string;    // Eventuale versione o sottotitolo
   cardClass: CardClass;
   rarity: CardRarity;
   cost: 2 | 3 | 4 | 5 | 6;
@@ -61,7 +81,7 @@ export type ObjectiveRuleType =
   | 'MIN_TOTAL_COST'
   | 'FORBID_COST'
   | 'ALL_EFFECT_TYPES'
-  | 'MAX_CLASS_COUNT';
+  | 'MAX_RARITY_COUNT';
 
 export interface ObjectiveCard {
   id: string;
@@ -70,43 +90,57 @@ export interface ObjectiveCard {
   ruleType: ObjectiveRuleType;
   targetNumber: number;
   targetClass?: string;
+  targetRarity?: CardRarity;
 }
 
 export interface GameConfig {
-  // Confermati / Struttura base
   minPlayers: number;
   maxPlayers: number;
   allow2PlayersTestMode: boolean;
 
-  // Draft & Spacchettamento iniziale
-  packsPerPlayer: number; // Default: 2 pacchetti
-  cardsPerPack: number;   // Default: 5 carte per pacchetto (10 totali)
-  teamSize: number;       // Default: 4 titolari
-  reserveSize: number;    // Default: 2 riserve nel Mercato
+  // Draft & Spacchettamento iniziale (2 bustine da 5 carte: 1 per classe + 1 jolly)
+  packsPerPlayer: number;
+  cardsPerPack: number;
+  teamSize: number;
+  reserveSize: number;
 
-  // Opzioni "In forse e da definire" dal GDD
+  // Regole "In forse e da definire" & Watchlist GDD
   startingTokens: number; // Proposta GDD: 3
   maxRollsPerTurn: number; // Default GDD: 3
   paidExtraRollEnabled: boolean; // In forse: pagare 1 gettone per un 4° tiro
   paidExtraRollCost: number;
-  uniquePersonPerTeam: boolean; // Una sola versione per persona in squadra
-  objectiveVisibility: 'SECRET' | 'PUBLIC'; // Coperto (default) o scoperto
-  marketSwapCost: number; // Prezzo scambio col Mercato
-  marketSwapTiming: 'FREE_IN_TURN' | 'REPLACES_MAIN_ACTION'; // Momento del turno
-  tradeRequiresCardSwap: boolean; // Chi vende riceve una carta non giocata in cambio
-  onObjectiveMismatch: 'ALLOW_RETURN_TO_HAND' | 'ALLOW_MARKET_SWAP' | 'NONE';
-  enableCardEffects: boolean; // Permette di testare sia con effetti attivi sia solo motore base
+  cashInHighFaces: 'FIVE_AND_SIX' | 'ONLY_SIX'; // GDD p.11: se troppo veloce, dare +1 solo sui 6
+  uniquePersonPerTeam: boolean; // In una squadra può entrare una sola versione per persona
+  blockDuplicateCardsInPlay: boolean; // Il primo che gioca una carta la blocca per gli altri
+  blockAllVersionsOfSamePersonInPlay: boolean; // Se il blocco vale solo per la stessa carta o per la stessa persona
+  objectiveVisibility: 'SECRET' | 'PUBLIC';
+  marketSwapCost: number;
+  marketSwapTiming: 'FREE_IN_TURN' | 'REPLACES_MAIN_ACTION';
+  tradeRequiresCardSwap: boolean;
+  onObjectiveMismatch: 'ALLOW_RETURN_TO_HAND' | 'NONE';
+  enableCardEffects: boolean;
 
   // Tabella combinazioni per costo (2..6)
   costCombinationsTable: Record<number, DiceComboId[]>;
 }
 
+export interface RepayDebtEntry {
+  toPlayerId: string;
+  amount: number;
+}
+
 export interface PlayerActiveModifiers {
   nextCardDiscount: number;
-  hasJokerDieNextRoll: boolean;
+  freeMarketSwapsCount: number;
+  canPlayExtraCardWithoutCombo: boolean;
   maxRollsOverrideNextTurn: number | null;
-  comboTierOffsetFromBoss: number; // +1 se bersagliato da "Il Boss"
-  bossSourceCardId?: string;
+  diceCountOverrideNextTurn: number | null;
+  skipNextTurn: boolean;
+  forbidPlayNextTurn: boolean;
+  usedLuckyDieFlipThisTurn: boolean;
+  animaFestaTriggersThisRound: number;
+  repayDebtsNextTurn: RepayDebtEntry[];
+  revealedObjectivePlayerIds: string[]; // Giocatori spiati con "Il Ficcanaso"
 }
 
 export interface PlayerState {
@@ -118,17 +152,17 @@ export interface PlayerState {
   tokens: number;
 
   // Fase Spacchettamento / Draft (2 pacchetti da 5 carte)
-  unopenedPacks: CardData[][]; // Array di pacchetti (ciascuno con 5 carte)
-  pulledPool: CardData[];      // Le 10 carte trovate nei pacchetti
-  selectedStarterIds: string[]; // 4 ID scelti come titolari
-  selectedReserveIds: string[]; // 2 ID scelti come riserve per il Mercato
+  unopenedPacks: CardData[][];
+  pulledPool: CardData[];
+  selectedStarterIds: string[];
+  selectedReserveIds: string[];
   draftReady: boolean;
 
   // Fase Partita
-  hand: CardData[];            // Carte titolari coperte (non ancora giocate)
-  played: CardData[];          // Carte giocate scoperte davanti a sé
-  objectiveCandidates: ObjectiveCard[]; // Le 2 carte Obiettivo pescate a inizio partita
-  objective: ObjectiveCard | null;      // L'Obiettivo scelto
+  hand: CardData[];
+  played: CardData[];
+  objectiveCandidates: ObjectiveCard[];
+  objective: ObjectiveCard | null;
   modifiers: PlayerActiveModifiers;
 }
 
@@ -137,8 +171,8 @@ export interface PendingTradeOffer {
   fromPlayerId: string;
   toPlayerId: string;
   offeredTokens: number;
-  targetCardId?: string; // Se vuoto, chiede una carta a scelta o specifica
-  offeredSwapCardId: string; // La carta non giocata ceduta in cambio
+  targetCardId?: string;
+  offeredSwapCardId: string;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
 }
 
@@ -148,13 +182,6 @@ export interface PendingDraftTradeOffer {
   toPlayerId: string;
   fromCardId: string;
   toCardId: string;
-}
-
-export interface PendingEffectPrompt {
-  sourcePlayerId: string;
-  sourceCard: CardData;
-  effectTemplateId: EffectTemplateId;
-  description: string;
 }
 
 export interface MoveLogEntry {
@@ -184,27 +211,26 @@ export interface GameState {
   objectivesDeck: ObjectiveCard[];
 
   players: PlayerState[];
-  market: CardData[]; // Carte di riserva scoperte al centro
+  market: CardData[];
 
   // Stato del turno corrente
   turnNumber: number;
   currentPlayerIndex: number;
   turnStep: TurnStep;
-  dice: number[];          // 5 dadi (valori 1..6)
-  keptDice: boolean[];     // 5 flag per tenere i dadi
+  dice: number[];
+  keptDice: boolean[];
   rollsLeft: number;
   hasUsedMarketThisTurn: boolean;
   hasMadeTradeOfferThisTurn: boolean;
   mainActionTaken: boolean;
 
-  // Effetti globali temporanei (es. "Quello che si addormenta sul divano": 4 dadi per 1 giro)
-  globalFourDiceUntilPlayerId: string | null;
+  // Effetti globali per 1 giro
+  othersFourDiceUntilPlayerId: string | null; // "Sonno Contagioso": tutti gli altri tirano con 4 dadi fino al tuo prossimo turno
+  invertComboTableUntilPlayerId: string | null; // "Il Trip": scambia combinazioni 2<->6 e 3<->5 fino al tuo prossimo turno
 
-  // Trattative / Offerte in corso
   pendingTradeOffer: PendingTradeOffer | null;
   pendingDraftTrades: PendingDraftTradeOffer[];
 
-  // Vincitore
   winnerPlayerId: string | null;
   actionLog: MoveLogEntry[];
 }
@@ -226,7 +252,7 @@ export type GameAction =
   | { type: 'ROLL_DICE'; playerId: string }
   | { type: 'BUY_EXTRA_ROLL'; playerId: string }
   | { type: 'TOGGLE_KEEP_DIE'; playerId: string; dieIndex: number }
-  | { type: 'SET_JOKER_DIE_VALUE'; playerId: string; dieIndex: number; value: number }
+  | { type: 'FLIP_DIE_OPPOSITE'; playerId: string; dieIndex: number }
   | { type: 'CASH_IN_DICE'; playerId: string }
   | {
       type: 'PLAY_CARD';
@@ -234,7 +260,7 @@ export type GameAction =
       cardId: string;
       targetPlayerId?: string;
       targetPlayedCardId?: string;
-      ownSwapCardId?: string;
+      useNoComboAlternateCost?: boolean;
     }
   | { type: 'MARKET_SWAP'; playerId: string; handCardId: string; marketCardId: string }
   | {

@@ -3,6 +3,7 @@ import {
   calculateCashInTokens,
   canDiceSatisfyCardCost,
   COMBO_LABELS_IT,
+  flipDieOppositeFace,
   rollSingleDie,
 } from './dice';
 import { evaluateObjective } from './objectives';
@@ -12,7 +13,6 @@ import {
   GameConfig,
   GameState,
   MoveLogEntry,
-  ObjectiveCard,
   PlayerState,
 } from './types';
 
@@ -55,6 +55,184 @@ function shuffleArray<T>(items: T[]): T[] {
   return arr;
 }
 
+export function getCardIdentityKey(card: CardData): string {
+  return (card.baseCardId || card.name).trim().toLowerCase();
+}
+
+/**
+ * Regola GDD "Personaggi doppi":
+ * Lo stesso personaggio può essere nella squadra di più giocatori, ma in gioco ne entra uno solo:
+ * il primo che lo gioca lo blocca per tutti gli altri. Se torna in mano, si sblocca.
+ */
+export function isCardBlockedByTable(
+  state: GameState,
+  card: CardData
+): { blocked: boolean; ownerName?: string } {
+  if (!state.config.blockDuplicateCardsInPlay) {
+    return { blocked: false };
+  }
+
+  const targetCardKey = getCardIdentityKey(card);
+  const targetPersonKey = card.personName.trim().toLowerCase();
+
+  for (const p of state.players) {
+    for (const playedCard of p.played) {
+      if (getCardIdentityKey(playedCard) === targetCardKey) {
+        return { blocked: true, ownerName: p.name };
+      }
+      if (
+        state.config.blockAllVersionsOfSamePersonInPlay &&
+        playedCard.personName.trim().toLowerCase() === targetPersonKey
+      ) {
+        return { blocked: true, ownerName: p.name };
+      }
+    }
+  }
+
+  return { blocked: false };
+}
+
+export function isPlayerProtectedByPiumone(player: PlayerState, enableEffects: boolean): boolean {
+  if (!enableEffects) return false;
+  return player.played.some(
+    (c) =>
+      c.effectModel.timing === 'WHILE_IN_PLAY' &&
+      c.effectModel.templateId === 'PROTECT_FROM_BUY_AND_BOUNCE'
+  );
+}
+
+export function hasLuckyDieInPlay(player: PlayerState, enableEffects: boolean): boolean {
+  if (!enableEffects) return false;
+  return player.played.some(
+    (c) =>
+      c.effectModel.timing === 'WHILE_IN_PLAY' &&
+      c.effectModel.templateId === 'FLIP_DIE_OPPOSITE_ONCE_PER_TURN'
+  );
+}
+
+export function getLoSponsorDiscount(player: PlayerState, enableEffects: boolean): number {
+  if (!enableEffects) return 0;
+  return player.played.reduce((acc, c) => {
+    if (
+      c.effectModel.timing === 'WHILE_IN_PLAY' &&
+      c.effectModel.templateId === 'DISCOUNT_COST_AND_COMBO_TIER'
+    ) {
+      return acc + (c.effectModel.value || 1);
+    }
+    return acc;
+  }, 0);
+}
+
+export function getEffectiveCardTokenCost(
+  player: PlayerState,
+  card: CardData,
+  enableEffects: boolean,
+  useNoComboAlternateCost = false
+): number {
+  const base =
+    useNoComboAlternateCost && card.effectModel.templateId === 'NO_COMBO_ALTERNATE_COST'
+      ? card.effectModel.value || 3
+      : card.cost;
+  const sponsorDiscount = getLoSponsorDiscount(player, enableEffects);
+  const oneShotDiscount = enableEffects ? player.modifiers.nextCardDiscount || 0 : 0;
+  return Math.max(0, base - sponsorDiscount - oneShotDiscount);
+}
+
+export function canPlayCardRightNow(
+  state: GameState,
+  player: PlayerState,
+  card: CardData
+): {
+  canPlayStandard: boolean;
+  canPlayNoComboAlt: boolean;
+  standardCost: number;
+  altCost: number;
+  blockedByOwner?: string;
+  requiredCombos: ReturnType<typeof canDiceSatisfyCardCost>['requiredCombos'];
+} {
+  const blockCheck = isCardBlockedByTable(state, card);
+  const sponsorOffset = -getLoSponsorDiscount(player, state.config.enableCardEffects);
+  const isTripActive = state.invertComboTableUntilPlayerId !== null;
+
+  const comboCheck = canDiceSatisfyCardCost(
+    state.dice,
+    card.cost,
+    state.config,
+    sponsorOffset,
+    isTripActive
+  );
+
+  const standardCost = getEffectiveCardTokenCost(
+    player,
+    card,
+    state.config.enableCardEffects,
+    false
+  );
+  const altCost = getEffectiveCardTokenCost(
+    player,
+    card,
+    state.config.enableCardEffects,
+    true
+  );
+
+  if (blockCheck.blocked) {
+    return {
+      canPlayStandard: false,
+      canPlayNoComboAlt: false,
+      standardCost,
+      altCost,
+      blockedByOwner: blockCheck.ownerName,
+      requiredCombos: comboCheck.requiredCombos,
+    };
+  }
+
+  if (player.modifiers.forbidPlayNextTurn) {
+    return {
+      canPlayStandard: false,
+      canPlayNoComboAlt: false,
+      standardCost,
+      altCost,
+      requiredCombos: comboCheck.requiredCombos,
+    };
+  }
+
+  // Se il giocatore ha giocato "After Party", può giocare una seconda carta senza combinazione di dadi pagando i gettoni
+  if (player.modifiers.canPlayExtraCardWithoutCombo) {
+    const enoughTokens = player.tokens >= standardCost;
+    return {
+      canPlayStandard: enoughTokens,
+      canPlayNoComboAlt: false,
+      standardCost,
+      altCost,
+      requiredCombos: comboCheck.requiredCombos,
+    };
+  }
+
+  if (state.mainActionTaken) {
+    return {
+      canPlayStandard: false,
+      canPlayNoComboAlt: false,
+      standardCost,
+      altCost,
+      requiredCombos: comboCheck.requiredCombos,
+    };
+  }
+
+  const canPlayStandard = player.tokens >= standardCost && comboCheck.satisfied;
+  const canPlayNoComboAlt =
+    state.config.enableCardEffects &&
+    card.effectModel.templateId === 'NO_COMBO_ALTERNATE_COST' &&
+    player.tokens >= altCost;
+
+  return {
+    canPlayStandard,
+    canPlayNoComboAlt,
+    standardCost,
+    altCost,
+    requiredCombos: comboCheck.requiredCombos,
+  };
+}
+
 export function createInitialGameState(
   roomCode = 'LAMEN',
   customCatalog?: CardData[],
@@ -82,7 +260,8 @@ export function createInitialGameState(
     hasUsedMarketThisTurn: false,
     hasMadeTradeOfferThisTurn: false,
     mainActionTaken: false,
-    globalFourDiceUntilPlayerId: null,
+    othersFourDiceUntilPlayerId: null,
+    invertComboTableUntilPlayerId: null,
     pendingTradeOffer: null,
     pendingDraftTrades: [],
     winnerPlayerId: null,
@@ -90,22 +269,43 @@ export function createInitialGameState(
   };
 }
 
-function generateBoosterPack(catalog: CardData[], count: number, packIndex: number): CardData[] {
-  const shuffled = shuffleArray(catalog);
-  const pack: CardData[] = [];
-  for (let i = 0; i < count; i++) {
-    const template = shuffled[i % shuffled.length];
-    pack.push({
-      ...template,
-      id: `${template.id}-p${packIndex}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-    });
-  }
-  return pack;
-}
+/**
+ * Regola GDD p.2 "1. Bustine":
+ * Ogni bustina da 5 carte contiene 1 carta per classe (Dormienti, Utenti, Festaioli, Scrocconi)
+ * più 1 carta jolly di classe a caso, che può essere rara o olografica (PROMO).
+ * Così ognuno ha almeno 2 carte per classe.
+ */
+function generateBoosterPack(catalog: CardData[], count: number, packSeed: number): CardData[] {
+  const mainClasses = ['Dormienti', 'Utenti', 'Festaioli', 'Scrocconi'];
+  const pickedTemplates: CardData[] = [];
+  const usedBaseIds = new Set<string>();
 
-function getEffectiveCardTokenCost(player: PlayerState, card: CardData): number {
-  const discount = player.modifiers.nextCardDiscount || 0;
-  return Math.max(0, card.cost - discount);
+  for (const cls of mainClasses) {
+    if (pickedTemplates.length >= count) break;
+    const pool = shuffleArray(catalog.filter((c) => c.cardClass === cls));
+    if (pool.length > 0) {
+      pickedTemplates.push(pool[0]);
+      usedBaseIds.add(getCardIdentityKey(pool[0]));
+    }
+  }
+
+  // Carte jolly rimanenti (preferibilmente Rara o PROMO se disponibili e non duplicate nella bustina)
+  const remainingPool = shuffleArray(
+    catalog.filter((c) => !usedBaseIds.has(getCardIdentityKey(c)))
+  );
+  const fullShuffled = shuffleArray(catalog);
+
+  while (pickedTemplates.length < count) {
+    const candidate =
+      remainingPool.shift() || fullShuffled[pickedTemplates.length % fullShuffled.length];
+    pickedTemplates.push(candidate);
+  }
+
+  return pickedTemplates.map((template, i) => ({
+    ...template,
+    baseCardId: template.baseCardId || template.id,
+    id: `${template.baseCardId || template.id}-pk${packSeed}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+  }));
 }
 
 function getPassiveCashInBonus(player: PlayerState, enableEffects: boolean): number {
@@ -119,20 +319,6 @@ function getPassiveCashInBonus(player: PlayerState, enableEffects: boolean): num
     }
     return acc;
   }, 0);
-}
-
-function recalculateOngoingBossModifiers(state: GameState) {
-  for (const p of state.players) {
-    if (p.modifiers.bossSourceCardId) {
-      const stillInPlay = state.players.some((owner) =>
-        owner.played.some((c) => c.id === p.modifiers.bossSourceCardId)
-      );
-      if (!stillInPlay) {
-        p.modifiers.comboTierOffsetFromBoss = 0;
-        p.modifiers.bossSourceCardId = undefined;
-      }
-    }
-  }
 }
 
 function checkWinner(state: GameState): string | null {
@@ -149,23 +335,121 @@ function checkWinner(state: GameState): string | null {
   return null;
 }
 
-function setupTurnForPlayer(state: GameState, playerIndex: number) {
+function setupTurnForPlayer(state: GameState, playerIndex: number, depth = 0) {
   state.currentPlayerIndex = playerIndex;
   const activePlayer = state.players[playerIndex];
 
-  // Se il giro di "Quello sul divano" (4 dadi per tutti fino al tuo prossimo turno) è tornato al proprietario, scade
-  if (state.globalFourDiceUntilPlayerId === activePlayer.id) {
-    state.globalFourDiceUntilPlayerId = null;
+  // Scadenza effetti globali di 1 giro ("Sonno Contagioso" e "Il Trip") quando il turno torna a chi li ha lanciati
+  if (state.othersFourDiceUntilPlayerId === activePlayer.id) {
+    state.othersFourDiceUntilPlayerId = null;
     addLog(
       state,
       activePlayer.id,
       activePlayer.name,
       'EFFECT_EXPIRED',
-      'L’effetto globale dei 4 dadi è terminato: si torna a 5 dadi!'
+      'L’effetto di "Sonno Contagioso" è terminato: tutti tornano a tirare 5 dadi!'
     );
   }
 
-  const diceCount = state.globalFourDiceUntilPlayerId ? 4 : 5;
+  if (state.invertComboTableUntilPlayerId === activePlayer.id) {
+    state.invertComboTableUntilPlayerId = null;
+    addLog(
+      state,
+      activePlayer.id,
+      activePlayer.name,
+      'EFFECT_EXPIRED',
+      'L’effetto de "Il Trip" è terminato: la tabella delle combinazioni torna normale!'
+    );
+  }
+
+  // Se il giocatore deve saltare il turno per "Il Letargo"
+  if (activePlayer.modifiers.skipNextTurn && depth < state.players.length) {
+    activePlayer.modifiers.skipNextTurn = false;
+    addLog(
+      state,
+      activePlayer.id,
+      activePlayer.name,
+      'SKIP_TURN',
+      `💤 ${activePlayer.name} salta il turno per l'effetto de "Il Letargo"!`
+    );
+    const nextIdx = (playerIndex + 1) % state.players.length;
+    if (nextIdx === 0) state.turnNumber += 1;
+    setupTurnForPlayer(state, nextIdx, depth + 1);
+    return;
+  }
+
+  // Reset contatore "Anima della Festa" a inizio giro del proprietario
+  activePlayer.modifiers.animaFestaTriggersThisRound = 0;
+  activePlayer.modifiers.usedLuckyDieFlipThisTurn = false;
+  activePlayer.modifiers.canPlayExtraCardWithoutCombo = false;
+
+  // Pagamento debiti di "Mi Presti 2 Euro?"
+  if (activePlayer.modifiers.repayDebtsNextTurn.length > 0) {
+    for (const debt of activePlayer.modifiers.repayDebtsNextTurn) {
+      const creditor = state.players.find((p) => p.id === debt.toPlayerId);
+      if (creditor && activePlayer.tokens > 0) {
+        const paid = Math.min(activePlayer.tokens, debt.amount);
+        activePlayer.tokens -= paid;
+        creditor.tokens += paid;
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'REPAY_DEBT',
+          `${activePlayer.name} restituisce ${paid} gettone a ${creditor.name} ("Mi Presti 2 Euro?").`
+        );
+      }
+    }
+    activePlayer.modifiers.repayDebtsNextTurn = [];
+  }
+
+  // Effetti passivi "All'inizio di ogni tuo turno" ("Il Dormiente Supremo" e "Il Mantenuto")
+  if (state.config.enableCardEffects) {
+    for (const c of activePlayer.played) {
+      if (c.effectModel.timing === 'WHILE_IN_PLAY') {
+        if (c.effectModel.templateId === 'TURN_START_GAIN_TOKENS') {
+          const gain = c.effectModel.value || 2;
+          activePlayer.tokens += gain;
+          addLog(
+            state,
+            activePlayer.id,
+            activePlayer.name,
+            'EFFECT',
+            `Effetto "${c.name}": ${activePlayer.name} riceve +${gain} gettoni a inizio turno.`
+          );
+        } else if (c.effectModel.templateId === 'TURN_START_STEAL_FROM_RICHEST') {
+          const opponents = state.players.filter((p) => p.id !== activePlayer.id && p.tokens > 0);
+          if (opponents.length > 0) {
+            opponents.sort((a, b) => b.tokens - a.tokens);
+            const richest = opponents[0];
+            const stealAmount = Math.min(richest.tokens, c.effectModel.value || 1);
+            richest.tokens -= stealAmount;
+            activePlayer.tokens += stealAmount;
+            addLog(
+              state,
+              activePlayer.id,
+              activePlayer.name,
+              'EFFECT',
+              `Effetto "${c.name}": ${activePlayer.name} ruba ${stealAmount} gettone a ${richest.name} (il più ricco)!`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Calcolo numero di dadi per questo turno (4 se "Sonno Contagioso" attivo o penalità "Giro di Shot")
+  const hasGlobal4Dice =
+    state.othersFourDiceUntilPlayerId !== null &&
+    state.othersFourDiceUntilPlayerId !== activePlayer.id;
+  const diceCount =
+    activePlayer.modifiers.diceCountOverrideNextTurn !== null
+      ? activePlayer.modifiers.diceCountOverrideNextTurn
+      : hasGlobal4Dice
+      ? 4
+      : 5;
+  activePlayer.modifiers.diceCountOverrideNextTurn = null;
+
   state.dice = Array.from({ length: diceCount }, () => rollSingleDie());
   state.keptDice = Array.from({ length: diceCount }, () => false);
 
@@ -175,7 +459,6 @@ function setupTurnForPlayer(state: GameState, playerIndex: number) {
       : state.config.maxRollsPerTurn;
 
   activePlayer.modifiers.maxRollsOverrideNextTurn = null;
-  // Il primo lancio avviene all'inizio del turno o cliccando Tira: lasciamo maxRolls - 1 ritiri dopo il primo tiro automatico
   state.rollsLeft = Math.max(0, maxRolls - 1);
   state.turnStep = 'ROLLING';
   state.hasUsedMarketThisTurn = false;
@@ -221,12 +504,7 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         played: [],
         objectiveCandidates: [],
         objective: null,
-        modifiers: {
-          nextCardDiscount: 0,
-          hasJokerDieNextRoll: false,
-          maxRollsOverrideNextTurn: null,
-          comboTierOffsetFromBoss: 0,
-        },
+        modifiers: createCleanModifiers(),
       };
       state.players.push(newPlayer);
       addLog(
@@ -271,8 +549,8 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         player.hand = [];
         player.played = [];
         player.tokens = state.config.startingTokens;
+        player.modifiers = createCleanModifiers();
 
-        // Se è un Bot, apre subito le bustine e sceglie squadra + riserve
         if (player.isBot) {
           player.pulledPool = packs.flat();
           player.unopenedPacks = [];
@@ -286,7 +564,7 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         'system',
         'Tavolo',
         'START_DRAFT',
-        `Inizia lo spacchettamento! Ogni giocatore ha ${state.config.packsPerPlayer} bustine da ${state.config.cardsPerPack} carte.`
+        `Inizia il Draft! Ogni giocatore apre ${state.config.packsPerPlayer} bustine da ${state.config.cardsPerPack} carte (1 per classe + 1 jolly).`
       );
       return state;
     }
@@ -319,12 +597,19 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
           player.selectedStarterIds = player.selectedStarterIds.filter((id) => id !== card.id);
           return state;
         }
-        // Rimuovi eventuale selezione come riserva
         player.selectedReserveIds = player.selectedReserveIds.filter((id) => id !== card.id);
 
         if (player.selectedStarterIds.length >= state.config.teamSize) return state;
 
-        // Controllo regola unicità persona in squadra
+        // Regola GDD: Nella propria squadra non si possono avere due copie della stessa carta
+        const cardKey = getCardIdentityKey(card);
+        const alreadyHasSameCard = player.selectedStarterIds.some((id) => {
+          const existing = player.pulledPool.find((c) => c.id === id);
+          return existing && getCardIdentityKey(existing) === cardKey;
+        });
+        if (alreadyHasSameCard) return state;
+
+        // Opzione configurabile: una sola versione per persona in squadra
         if (state.config.uniquePersonPerTeam) {
           const alreadyHasPerson = player.selectedStarterIds.some((id) => {
             const existing = player.pulledPool.find((c) => c.id === id);
@@ -426,10 +711,9 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         player.id,
         player.name,
         'TEAM_READY',
-        `${player.name} ha confermato i 4 titolari e le 2 riserve.`
+        `${player.name} ha confermato i 4 titolari e le 2 riserve (le altre 4 carte tornano in collezione).`
       );
 
-      // Se tutti i giocatori hanno confermato la squadra, popoliamo mano + Mercato e passiamo alla pesca dei 2 Obiettivi
       if (state.players.every((p) => p.draftReady)) {
         state.market = [];
         const objDeck = shuffleArray(state.objectivesDeck);
@@ -451,10 +735,9 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
           'system',
           'Tavolo',
           'PHASE_OBJECTIVE',
-          `Squadre pronte e ${state.market.length} riserve nel Mercato! Ogni giocatore pesca 2 carte Obiettivo e ne sceglie 1.`
+          `Squadre confermate e ${state.market.length} riserve nel Mercato! Ognuno pesca 2 carte Obiettivo e ne tiene 1 coperta.`
         );
 
-        // Se per caso sono tutti bot, avvia subito la partita
         if (state.players.every((p) => p.objective !== null)) {
           state.phase = 'PLAYING';
           state.turnNumber = 1;
@@ -478,7 +761,7 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         'OBJECTIVE_PICKED',
         state.config.objectiveVisibility === 'PUBLIC'
           ? `${player.name} ha scelto l'Obiettivo: "${chosen.title}".`
-          : `${player.name} ha scelto il suo Obiettivo segreto.`
+          : `${player.name} ha scelto il suo Obiettivo coperto.`
       );
 
       if (state.phase === 'OBJECTIVE_PICK' && state.players.every((p) => p.objective !== null)) {
@@ -539,27 +822,30 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         activePlayer.id,
         activePlayer.name,
         'EXTRA_ROLL',
-        `${activePlayer.name} ha pagato ${state.config.paidExtraRollCost} gettone per un tiro extra!`
+        `${activePlayer.name} ha pagato ${state.config.paidExtraRollCost} gettone per un 4° tiro extra!`
       );
       return state;
     }
 
-    case 'SET_JOKER_DIE_VALUE': {
+    case 'FLIP_DIE_OPPOSITE': {
       const activePlayer = state.players[state.currentPlayerIndex];
       if (!activePlayer || activePlayer.id !== action.playerId) return state;
-      if (!activePlayer.modifiers.hasJokerDieNextRoll) return state;
-      if (action.value < 1 || action.value > 6) return state;
+      if (!hasLuckyDieInPlay(activePlayer, state.config.enableCardEffects)) return state;
+      if (activePlayer.modifiers.usedLuckyDieFlipThisTurn) return state;
       if (action.dieIndex < 0 || action.dieIndex >= state.dice.length) return state;
 
-      state.dice[action.dieIndex] = action.value;
+      const oldVal = state.dice[action.dieIndex];
+      const newVal = flipDieOppositeFace(oldVal);
+      state.dice[action.dieIndex] = newVal;
       state.keptDice[action.dieIndex] = true;
-      activePlayer.modifiers.hasJokerDieNextRoll = false;
+      activePlayer.modifiers.usedLuckyDieFlipThisTurn = true;
+
       addLog(
         state,
         activePlayer.id,
         activePlayer.name,
-        'JOKER_DIE',
-        `${activePlayer.name} ha usato il Dado Jolly impostando il dado #${action.dieIndex + 1} sul valore ${action.value}!`
+        'LUCKY_DIE_FLIP',
+        `Effetto "Il Dado Fortunato": ${activePlayer.name} gira il dado #${action.dieIndex + 1} sulla faccia opposta (${oldVal} ↔ ${newVal})!`
       );
       return state;
     }
@@ -570,9 +856,14 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
       if (state.mainActionTaken) return state;
 
       const passiveBonus = getPassiveCashInBonus(activePlayer, state.config.enableCardEffects);
-      const gained = calculateCashInTokens(state.dice, passiveBonus);
+      const gained = calculateCashInTokens(
+        state.dice,
+        passiveBonus,
+        state.config.cashInHighFaces
+      );
       activePlayer.tokens += gained;
       state.mainActionTaken = true;
+      activePlayer.modifiers.forbidPlayNextTurn = false;
       state.turnStep = 'POST_ACTION';
 
       addLog(
@@ -580,34 +871,58 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         activePlayer.id,
         activePlayer.name,
         'CASH_IN',
-        `${activePlayer.name} sceglie INCASSA coi dadi [${state.dice.join(', ')}] e guadagna +${gained} gettoni (totale: ${activePlayer.tokens}).`
+        `${activePlayer.name} sceglie INCASSA coi dadi [${state.dice.join(', ')}] e prende +${gained} gettoni (totale: ${activePlayer.tokens}).`
       );
+
+      // Effetto passivo "Il Parassita": quando il giocatore alla tua sinistra sceglie Incassa, prendi 1 gettone dalla scorta
+      if (state.config.enableCardEffects && state.players.length >= 2) {
+        const rightNeighborIndex =
+          (state.currentPlayerIndex - 1 + state.players.length) % state.players.length;
+        const rightNeighbor = state.players[rightNeighborIndex];
+        // Per rightNeighbor, activePlayer è il giocatore alla sua sinistra!
+        for (const c of rightNeighbor.played) {
+          if (
+            c.effectModel.timing === 'WHILE_IN_PLAY' &&
+            c.effectModel.templateId === 'LEFT_NEIGHBOR_CASH_IN_BONUS'
+          ) {
+            const bonus = c.effectModel.value || 1;
+            rightNeighbor.tokens += bonus;
+            addLog(
+              state,
+              rightNeighbor.id,
+              rightNeighbor.name,
+              'EFFECT',
+              `Effetto "${c.name}": ${rightNeighbor.name} prende +${bonus} gettone perché il vicino a sinistra (${activePlayer.name}) ha scelto Incassa!`
+            );
+          }
+        }
+      }
+
       return state;
     }
 
     case 'PLAY_CARD': {
       const activePlayer = state.players[state.currentPlayerIndex];
       if (!activePlayer || activePlayer.id !== action.playerId) return state;
-      if (state.mainActionTaken) return state;
 
       const cardIdx = activePlayer.hand.findIndex((c) => c.id === action.cardId);
       if (cardIdx === -1) return state;
       const card = activePlayer.hand[cardIdx];
 
-      const effectiveCost = getEffectiveCardTokenCost(activePlayer, card);
-      if (activePlayer.tokens < effectiveCost) return state;
+      const playability = canPlayCardRightNow(state, activePlayer, card);
+      const useAltNoCombo = Boolean(action.useNoComboAlternateCost && playability.canPlayNoComboAlt);
 
-      const comboCheck = canDiceSatisfyCardCost(
-        state.dice,
-        card.cost,
-        state.config,
-        activePlayer.modifiers.comboTierOffsetFromBoss
-      );
-      if (!comboCheck.satisfied) return state;
+      if (!useAltNoCombo && !playability.canPlayStandard) {
+        return state;
+      }
 
-      // Paga i gettoni e metti la carta scoperta in gioco
-      activePlayer.tokens -= effectiveCost;
+      const costToPay = useAltNoCombo ? playability.altCost : playability.standardCost;
+      activePlayer.tokens -= costToPay;
       activePlayer.modifiers.nextCardDiscount = 0;
+
+      const usedAfterPartyFreeCombo = activePlayer.modifiers.canPlayExtraCardWithoutCombo;
+      activePlayer.modifiers.canPlayExtraCardWithoutCombo = false;
+
       activePlayer.hand.splice(cardIdx, 1);
       activePlayer.played.push(card);
       state.mainActionTaken = true;
@@ -618,17 +933,45 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         activePlayer.id,
         activePlayer.name,
         'PLAY_CARD',
-        `${activePlayer.name} GIOCA "${card.name}" (${card.cardClass}, costo ${effectiveCost} gettoni, combinazione ${comboCheck.requiredCombos.map((c) => COMBO_LABELS_IT[c]).join(' / ')}).`
+        useAltNoCombo
+          ? `${activePlayer.name} GIOCA "${card.name}" pagando ${costToPay} gettoni senza combinazione di dadi.`
+          : usedAfterPartyFreeCombo
+          ? `${activePlayer.name} GIOCA "${card.name}" (2ª carta con After Party, ${costToPay} gettoni senza combinazione)!`
+          : `${activePlayer.name} GIOCA "${card.name}" (${card.cardClass}, costo ${costToPay} gettoni, combinazione ${playability.requiredCombos.map((c) => COMBO_LABELS_IT[c]).join(' / ')}).`
       );
 
-      // Applica il modello dell'effetto se attivo
+      // Effetto passivo "Anima della Festa" degli altri giocatori: quando un altro giocatore gioca una carta, prendi 1 gettone (max 2 per giro)
+      if (state.config.enableCardEffects) {
+        for (const other of state.players) {
+          if (other.id === activePlayer.id) continue;
+          for (const pc of other.played) {
+            if (
+              pc.effectModel.timing === 'WHILE_IN_PLAY' &&
+              pc.effectModel.templateId === 'ON_OTHER_PLAY_GAIN_TOKEN'
+            ) {
+              const maxPerRound = pc.effectModel.secondaryValue || 2;
+              if (other.modifiers.animaFestaTriggersThisRound < maxPerRound) {
+                const gain = pc.effectModel.value || 1;
+                other.tokens += gain;
+                other.modifiers.animaFestaTriggersThisRound += 1;
+                addLog(
+                  state,
+                  other.id,
+                  other.name,
+                  'EFFECT',
+                  `Effetto "${pc.name}": ${other.name} guadagna +${gain} gettone (${other.modifiers.animaFestaTriggersThisRound}/${maxPerRound} in questo giro)!`
+                );
+              }
+            }
+          }
+        }
+      }
+
+      // Applica l'effetto della carta giocata
       if (state.config.enableCardEffects) {
         applyCardEffectOnPlay(state, activePlayer, card, action);
       }
 
-      recalculateOngoingBossModifiers(state);
-
-      // Verifica se il giocatore ha vinto (4 carte in gioco + Obiettivo rispettato)
       const winnerId = checkWinner(state);
       if (winnerId) {
         state.winnerPlayerId = winnerId;
@@ -648,14 +991,19 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
     case 'MARKET_SWAP': {
       const activePlayer = state.players[state.currentPlayerIndex];
       if (!activePlayer || activePlayer.id !== action.playerId) return state;
-      if (state.hasUsedMarketThisTurn) return state;
+
+      const hasFreeSwap = activePlayer.modifiers.freeMarketSwapsCount > 0;
+      if (!hasFreeSwap && state.hasUsedMarketThisTurn) return state;
       if (
+        !hasFreeSwap &&
         state.config.marketSwapTiming === 'REPLACES_MAIN_ACTION' &&
         state.mainActionTaken
       ) {
         return state;
       }
-      if (activePlayer.tokens < state.config.marketSwapCost) return state;
+
+      const swapCost = hasFreeSwap ? 0 : state.config.marketSwapCost;
+      if (activePlayer.tokens < swapCost) return state;
 
       const handIdx = activePlayer.hand.findIndex((c) => c.id === action.handCardId);
       const marketIdx = state.market.findIndex((c) => c.id === action.marketCardId);
@@ -664,24 +1012,33 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
       const handCard = activePlayer.hand[handIdx];
       const marketCard = state.market[marketIdx];
 
-      // Verifica regola unicità persona in squadra (tra mano + giocate)
+      // Regola GDD: Nella propria squadra non si possono avere due copie della stessa carta
+      const otherTeamCards = [
+        ...activePlayer.played,
+        ...activePlayer.hand.filter((c) => c.id !== handCard.id),
+      ];
+      if (otherTeamCards.some((c) => getCardIdentityKey(c) === getCardIdentityKey(marketCard))) {
+        return state;
+      }
+
       if (state.config.uniquePersonPerTeam) {
-        const otherTeamCards = [
-          ...activePlayer.played,
-          ...activePlayer.hand.filter((c) => c.id !== handCard.id),
-        ];
         const duplicatePerson = otherTeamCards.some(
           (c) => c.personName.toLowerCase() === marketCard.personName.toLowerCase()
         );
         if (duplicatePerson) return state;
       }
 
-      activePlayer.tokens -= state.config.marketSwapCost;
+      activePlayer.tokens -= swapCost;
+      if (hasFreeSwap) {
+        activePlayer.modifiers.freeMarketSwapsCount -= 1;
+      } else {
+        state.hasUsedMarketThisTurn = true;
+      }
+
       activePlayer.hand[handIdx] = marketCard;
       state.market[marketIdx] = handCard;
-      state.hasUsedMarketThisTurn = true;
 
-      if (state.config.marketSwapTiming === 'REPLACES_MAIN_ACTION') {
+      if (!hasFreeSwap && state.config.marketSwapTiming === 'REPLACES_MAIN_ACTION') {
         state.mainActionTaken = true;
         state.turnStep = 'POST_ACTION';
       }
@@ -691,7 +1048,7 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         activePlayer.id,
         activePlayer.name,
         'MARKET_SWAP',
-        `${activePlayer.name} ha scambiato una carta col Mercato prendendo "${marketCard.name}" e lasciando "${handCard.name}" (-${state.config.marketSwapCost} gettoni).`
+        `${activePlayer.name} scambia col Mercato: prende "${marketCard.name}" e lascia "${handCard.name}" (${swapCost === 0 ? 'GRATIS' : `-${swapCost} gettoni`}).`
       );
       return state;
     }
@@ -707,6 +1064,18 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
 
       const targetPlayer = state.players.find((p) => p.id === action.toPlayerId);
       if (!targetPlayer || targetPlayer.hand.length === 0) return state;
+
+      // Se il bersaglio ha "Il Piumone" in gioco, nessuno può comprargli carte
+      if (isPlayerProtectedByPiumone(targetPlayer, state.config.enableCardEffects)) {
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'PROTECTED',
+          `${targetPlayer.name} è protetto da "Il Piumone": non è possibile comprargli carte!`
+        );
+        return state;
+      }
 
       const ownCard = activePlayer.hand.find((c) => c.id === action.offeredSwapCardId);
       if (!ownCard) return state;
@@ -730,21 +1099,13 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         `${activePlayer.name} offre ${action.offeredTokens} gettoni (+ 1 carta in cambio) a ${targetPlayer.name} per comprare una carta non giocata.`
       );
 
-      // Se il destinatario è un Bot, valuta e risponde subito
       if (targetPlayer.isBot) {
         const shouldAccept = action.offeredTokens >= 2 && targetPlayer.hand.length > 0;
-        if (shouldAccept) {
-          return applyGameAction(state, {
-            type: 'RESPOND_PLAYER_TRADE',
-            accept: true,
-            chosenTargetCardId: targetPlayer.hand[0].id,
-          });
-        } else {
-          return applyGameAction(state, {
-            type: 'RESPOND_PLAYER_TRADE',
-            accept: false,
-          });
-        }
+        return applyGameAction(state, {
+          type: 'RESPOND_PLAYER_TRADE',
+          accept: shouldAccept,
+          chosenTargetCardId: targetPlayer.hand[0]?.id,
+        });
       }
 
       return state;
@@ -807,7 +1168,6 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
 
       const [card] = player.played.splice(idx, 1);
       player.hand.push(card);
-      recalculateOngoingBossModifiers(state);
 
       addLog(
         state,
@@ -822,6 +1182,9 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
     case 'END_TURN': {
       const activePlayer = state.players[state.currentPlayerIndex];
       if (!activePlayer || activePlayer.id !== action.playerId) return state;
+
+      activePlayer.modifiers.forbidPlayNextTurn = false;
+      activePlayer.modifiers.canPlayExtraCardWithoutCombo = false;
 
       const winnerId = checkWinner(state);
       if (winnerId) {
@@ -844,7 +1207,8 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
       state.market = [];
       state.pendingTradeOffer = null;
       state.pendingDraftTrades = [];
-      state.globalFourDiceUntilPlayerId = null;
+      state.othersFourDiceUntilPlayerId = null;
+      state.invertComboTableUntilPlayerId = null;
       state.players.forEach((p) => {
         p.draftReady = false;
         p.unopenedPacks = [];
@@ -856,6 +1220,7 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
         p.objective = null;
         p.objectiveCandidates = [];
         p.tokens = state.config.startingTokens;
+        p.modifiers = createCleanModifiers();
       });
       return state;
     }
@@ -865,24 +1230,43 @@ export function applyGameAction(prevState: GameState, action: GameAction): GameS
   }
 }
 
+function createCleanModifiers(): PlayerState['modifiers'] {
+  return {
+    nextCardDiscount: 0,
+    freeMarketSwapsCount: 0,
+    canPlayExtraCardWithoutCombo: false,
+    maxRollsOverrideNextTurn: null,
+    diceCountOverrideNextTurn: null,
+    skipNextTurn: false,
+    forbidPlayNextTurn: false,
+    usedLuckyDieFlipThisTurn: false,
+    animaFestaTriggersThisRound: 0,
+    repayDebtsNextTurn: [],
+    revealedObjectivePlayerIds: [],
+  };
+}
+
 function autoPickDraftForPlayer(player: PlayerState, config: GameConfig) {
   player.selectedStarterIds = [];
   player.selectedReserveIds = [];
-  const usedNames = new Set<string>();
+  const usedCardKeys = new Set<string>();
+  const usedPersonNames = new Set<string>();
 
   for (const card of player.pulledPool) {
+    const cKey = getCardIdentityKey(card);
+    const pKey = card.personName.toLowerCase();
+
     if (player.selectedStarterIds.length < config.teamSize) {
-      if (config.uniquePersonPerTeam && usedNames.has(card.personName.toLowerCase())) {
-        continue;
-      }
+      if (usedCardKeys.has(cKey)) continue;
+      if (config.uniquePersonPerTeam && usedPersonNames.has(pKey)) continue;
       player.selectedStarterIds.push(card.id);
-      usedNames.add(card.personName.toLowerCase());
+      usedCardKeys.add(cKey);
+      usedPersonNames.add(pKey);
     } else if (player.selectedReserveIds.length < config.reserveSize) {
       player.selectedReserveIds.push(card.id);
     }
   }
 
-  // Fallback se ci fossero troppi doppioni dello stesso personaggio
   for (const card of player.pulledPool) {
     if (
       player.selectedStarterIds.length < config.teamSize &&
@@ -908,6 +1292,7 @@ function applyCardEffectOnPlay(
 ) {
   const model = card.effectModel;
   const val = model.value ?? 1;
+  const secVal = model.secondaryValue ?? 1;
   const opponents = state.players.filter((p) => p.id !== activePlayer.id);
   const targetPlayer =
     state.players.find((p) => p.id === action.targetPlayerId) || opponents[0];
@@ -920,22 +1305,59 @@ function applyCardEffectOnPlay(
         activePlayer.id,
         activePlayer.name,
         'EFFECT',
-        `Effetto "${card.name}": ${activePlayer.name} guadagna +${val} gettoni.`
+        `Effetto "${card.name}": ${activePlayer.name} prende +${val} gettone/i.`
       );
       break;
     }
 
-    case 'STEAL_TOKENS': {
+    case 'SET_TARGET_NEXT_ROLLS': {
       if (targetPlayer) {
-        const stolen = Math.min(targetPlayer.tokens, val);
-        targetPlayer.tokens -= stolen;
-        activePlayer.tokens += stolen;
+        targetPlayer.modifiers.maxRollsOverrideNextTurn = val;
         addLog(
           state,
           activePlayer.id,
           activePlayer.name,
           'EFFECT',
-          `Effetto "${card.name}": ${activePlayer.name} ruba ${stolen} gettoni a ${targetPlayer.name}!`
+          `Effetto "${card.name}": ${targetPlayer.name} tirerà i dadi solo ${val} volte nel suo prossimo turno!`
+        );
+      }
+      break;
+    }
+
+    case 'GAIN_TOKENS_AND_NEXT_ROLLS': {
+      activePlayer.tokens += val;
+      activePlayer.modifiers.maxRollsOverrideNextTurn = secVal;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${activePlayer.name} prende +${val} gettone e nel prossimo turno potrà tirare ${secVal} volte!`
+      );
+      break;
+    }
+
+    case 'OTHERS_FOUR_DICE_ONE_ROUND': {
+      state.othersFourDiceUntilPlayerId = activePlayer.id;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": fino al prossimo turno di ${activePlayer.name}, tutti gli altri tirano con 4 dadi!`
+      );
+      break;
+    }
+
+    case 'SKIP_TARGET_NEXT_TURN': {
+      if (targetPlayer) {
+        targetPlayer.modifiers.skipNextTurn = true;
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'EFFECT',
+          `Effetto "${card.name}": ${targetPlayer.name} salterà il suo prossimo turno!`
         );
       }
       break;
@@ -953,7 +1375,12 @@ function applyCardEffectOnPlay(
           'EFFECT',
           `Effetto "${card.name}": dado = ${gambleRoll} (1–2)! ${activePlayer.name} perde ${lost} gettoni.`
         );
-      } else if (gambleRoll === 6 && targetPlayer && activePlayer.hand.length > 0 && targetPlayer.hand.length > 0) {
+      } else if (
+        gambleRoll === 6 &&
+        targetPlayer &&
+        activePlayer.hand.length > 0 &&
+        targetPlayer.hand.length > 0
+      ) {
         const ownCard = activePlayer.hand.shift()!;
         const oppCard = targetPlayer.hand.shift()!;
         activePlayer.hand.push(oppCard);
@@ -971,78 +1398,61 @@ function applyCardEffectOnPlay(
           activePlayer.id,
           activePlayer.name,
           'EFFECT',
-          `Effetto "${card.name}": dado = ${gambleRoll} (nessuna penalità e nessuno scambio).`
+          `Effetto "${card.name}": dado = ${gambleRoll} (nessun malus e nessuno scambio).`
         );
       }
       break;
     }
 
-    case 'REDUCE_ALL_DICE': {
-      state.globalFourDiceUntilPlayerId = activePlayer.id;
-      addLog(
-        state,
-        activePlayer.id,
-        activePlayer.name,
-        'EFFECT',
-        `Effetto "${card.name}": fino al prossimo turno di ${activePlayer.name}, tutti tirano con 4 dadi invece di 5!`
-      );
-      break;
-    }
-
-    case 'REDUCE_TARGET_ROLLS': {
+    case 'LOSE_TARGET_TOKENS': {
       if (targetPlayer) {
-        targetPlayer.modifiers.maxRollsOverrideNextTurn = val;
+        const lost = Math.min(targetPlayer.tokens, val);
+        targetPlayer.tokens -= lost;
         addLog(
           state,
           activePlayer.id,
           activePlayer.name,
           'EFFECT',
-          `Effetto "${card.name}": ${targetPlayer.name} potrà tirare i dadi solo ${val} volte nel suo prossimo turno!`
+          `Effetto "${card.name}": ${targetPlayer.name} perde ${lost} gettone/i nella scorta.`
         );
       }
       break;
     }
 
-    case 'GRANT_JOKER_DIE': {
-      activePlayer.modifiers.hasJokerDieNextRoll = true;
+    case 'ROLL_2D6_JACKPOT_TOKENS': {
+      const d1 = rollSingleDie();
+      const d2 = rollSingleDie();
+      const sum = d1 + d2;
+      const reward = sum === 6 || sum === 7 ? val : secVal;
+      activePlayer.tokens += reward;
       addLog(
         state,
         activePlayer.id,
         activePlayer.name,
         'EFFECT',
-        `Effetto "${card.name}": ${activePlayer.name} ottiene 1 Dado Jolly per il suo prossimo tiro!`
+        `Effetto "${card.name}": 2 dadi = ${d1} + ${d2} = ${sum}! ${activePlayer.name} prende +${reward} gettoni.`
       );
       break;
     }
 
-    case 'ALL_REDRAW_OBJECTIVE': {
-      const shuffledObjs = shuffleArray(state.objectivesDeck);
-      state.players.forEach((p, idx) => {
-        const newObj: ObjectiveCard =
-          shuffledObjs.find((o) => o.id !== p.objective?.id) ||
-          shuffledObjs[idx % shuffledObjs.length];
-        if (newObj && p.objective) {
-          p.objectiveCandidates = [p.objective, newObj];
-        }
-      });
+    case 'ALL_ROLL_LOWEST_LOSES_TOKENS': {
+      const rolls = state.players.map((p) => ({
+        player: p,
+        roll: rollSingleDie(),
+      }));
+      const minRoll = Math.min(...rolls.map((r) => r.roll));
+      const losers = rolls.filter((r) => r.roll === minRoll);
+      for (const l of losers) {
+        const lost = Math.min(l.player.tokens, val);
+        l.player.tokens -= lost;
+      }
+      const summary = rolls.map((r) => `${r.player.name}:${r.roll}`).join(', ');
       addLog(
         state,
         activePlayer.id,
         activePlayer.name,
         'EFFECT',
-        `Effetto "${card.name}": ogni giocatore ha pescato un nuovo Obiettivo e può scegliere se cambiarlo!`
-      );
-      break;
-    }
-
-    case 'NEXT_CARD_DISCOUNT': {
-      activePlayer.modifiers.nextCardDiscount += val;
-      addLog(
-        state,
-        activePlayer.id,
-        activePlayer.name,
-        'EFFECT',
-        `Effetto "${card.name}": la prossima carta di ${activePlayer.name} costerà ${val} gettoni in meno!`
+        `Effetto "${card.name}" [${summary}]: minimo ${minRoll} → ${losers.map((l) => l.player.name).join(', ')} perde ${val} gettoni!`
       );
       break;
     }
@@ -1066,8 +1476,193 @@ function applyCardEffectOnPlay(
       break;
     }
 
+    case 'FORBID_TARGET_PLAY_NEXT_TURN': {
+      if (targetPlayer) {
+        targetPlayer.modifiers.forbidPlayNextTurn = true;
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'EFFECT',
+          `Effetto "${card.name}": nel suo prossimo turno ${targetPlayer.name} non potrà scegliere Gioca (solo Incassa)!`
+        );
+      }
+      break;
+    }
+
+    case 'INVERT_COMBO_TABLE_ONE_ROUND': {
+      state.invertComboTableUntilPlayerId = activePlayer.id;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": fino al prossimo turno di ${activePlayer.name}, le combinazioni dei costi 2↔6 e 3↔5 sono invertite!`
+      );
+      break;
+    }
+
+    case 'ALL_GAIN_TOKENS_SELF_MORE': {
+      for (const p of state.players) {
+        if (p.id === activePlayer.id) {
+          p.tokens += val;
+        } else {
+          p.tokens += secVal;
+        }
+      }
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${activePlayer.name} prende +${val} gettoni e tutti gli altri +${secVal}!`
+      );
+      break;
+    }
+
+    case 'GAIN_TOKENS_AND_FREE_MARKET': {
+      activePlayer.tokens += val;
+      activePlayer.modifiers.freeMarketSwapsCount += 1;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${activePlayer.name} prende +${val} gettone e il suo prossimo scambio col Mercato è GRATIS!`
+      );
+      break;
+    }
+
+    case 'OTHERS_PAY_TOKEN_OR_4_DICE': {
+      const paidNames: string[] = [];
+      const fourDiceNames: string[] = [];
+      for (const opp of opponents) {
+        if (opp.tokens >= val) {
+          opp.tokens -= val;
+          activePlayer.tokens += val;
+          paidNames.push(opp.name);
+        } else {
+          opp.modifiers.diceCountOverrideNextTurn = 4;
+          fourDiceNames.push(opp.name);
+        }
+      }
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${paidNames.length > 0 ? `${paidNames.join(', ')} dà 1 gettone` : ''} ${fourDiceNames.length > 0 ? `${fourDiceNames.join(', ')} tirerà 4 dadi` : ''}.`
+      );
+      break;
+    }
+
+    case 'ALL_FREE_MARKET_SWAP': {
+      for (const p of state.players) {
+        p.modifiers.freeMarketSwapsCount += 1;
+      }
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ogni giocatore ottiene 1 scambio GRATIS col Mercato!`
+      );
+      break;
+    }
+
+    case 'PLAY_EXTRA_CARD_NO_COMBO': {
+      activePlayer.modifiers.canPlayExtraCardWithoutCombo = true;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${activePlayer.name} può giocare subito un'altra carta pagando solo i gettoni (senza combinazione di dadi)!`
+      );
+      break;
+    }
+
+    case 'STEAL_TOKENS': {
+      if (targetPlayer) {
+        const stolen = Math.min(targetPlayer.tokens, val);
+        targetPlayer.tokens -= stolen;
+        activePlayer.tokens += stolen;
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'EFFECT',
+          `Effetto "${card.name}": ${activePlayer.name} ruba ${stolen} gettone/i a ${targetPlayer.name}!`
+        );
+      }
+      break;
+    }
+
+    case 'BORROW_TOKENS_REPAY_NEXT_TURN': {
+      if (targetPlayer) {
+        const taken = Math.min(targetPlayer.tokens, val);
+        targetPlayer.tokens -= taken;
+        activePlayer.tokens += taken;
+        if (taken > 0) {
+          activePlayer.modifiers.repayDebtsNextTurn.push({
+            toPlayerId: targetPlayer.id,
+            amount: secVal,
+          });
+        }
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'EFFECT',
+          `Effetto "${card.name}": ${activePlayer.name} prende ${taken} gettoni da ${targetPlayer.name} (ne restituirà ${secVal} al prossimo turno).`
+        );
+      }
+      break;
+    }
+
+    case 'FREE_IMMEDIATE_MARKET_SWAP': {
+      activePlayer.modifiers.freeMarketSwapsCount += 1;
+      addLog(
+        state,
+        activePlayer.id,
+        activePlayer.name,
+        'EFFECT',
+        `Effetto "${card.name}": ${activePlayer.name} può scambiare subito GRATIS una carta col Mercato!`
+      );
+      break;
+    }
+
+    case 'PEEK_OBJECTIVE_AND_STEAL': {
+      if (targetPlayer) {
+        const stolen = Math.min(targetPlayer.tokens, val);
+        targetPlayer.tokens -= stolen;
+        activePlayer.tokens += stolen;
+        if (!activePlayer.modifiers.revealedObjectivePlayerIds.includes(targetPlayer.id)) {
+          activePlayer.modifiers.revealedObjectivePlayerIds.push(targetPlayer.id);
+        }
+        addLog(
+          state,
+          activePlayer.id,
+          activePlayer.name,
+          'EFFECT',
+          `Effetto "${card.name}": ${activePlayer.name} spia l'Obiettivo di ${targetPlayer.name} e gli ruba ${stolen} gettone!`
+        );
+      }
+      break;
+    }
+
     case 'RETURN_PLAYED_CARD': {
       if (targetPlayer) {
+        if (isPlayerProtectedByPiumone(targetPlayer, state.config.enableCardEffects)) {
+          addLog(
+            state,
+            activePlayer.id,
+            activePlayer.name,
+            'PROTECTED',
+            `${targetPlayer.name} ha "Il Piumone" in gioco: le sue carte giocate sono protette dallo sfratto!`
+          );
+          break;
+        }
         const eligible = targetPlayer.played.filter((c) => c.cost <= val);
         const cardToReturn =
           eligible.find((c) => c.id === action.targetPlayedCardId) || eligible[0];
@@ -1079,24 +1674,9 @@ function applyCardEffectOnPlay(
             activePlayer.id,
             activePlayer.name,
             'EFFECT',
-            `Effetto "${card.name}": "${cardToReturn.name}" di ${targetPlayer.name} è stata rimandata in mano!`
+            `Effetto "${card.name}": "${cardToReturn.name}" di ${targetPlayer.name} torna in mano (ed eventuali copie bloccate si sbloccano)!`
           );
         }
-      }
-      break;
-    }
-
-    case 'SHIFT_TARGET_COMBO_TIER': {
-      if (targetPlayer) {
-        targetPlayer.modifiers.comboTierOffsetFromBoss = val;
-        targetPlayer.modifiers.bossSourceCardId = card.id;
-        addLog(
-          state,
-          activePlayer.id,
-          activePlayer.name,
-          'EFFECT',
-          `Effetto "${card.name}": finché è in gioco, le carte di ${targetPlayer.name} richiedono la combinazione del costo superiore!`
-        );
       }
       break;
     }

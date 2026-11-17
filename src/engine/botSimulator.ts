@@ -1,5 +1,9 @@
-import { canDiceSatisfyCardCost } from './dice';
-import { applyGameAction, createInitialGameState } from './gameEngine';
+import {
+  applyGameAction,
+  canPlayCardRightNow,
+  createInitialGameState,
+  isCardBlockedByTable,
+} from './gameEngine';
 import { CardData, GameConfig, GameState } from './types';
 
 /**
@@ -10,35 +14,57 @@ export function executeBotTurnStep(state: GameState): GameState {
   const activePlayer = state.players[state.currentPlayerIndex];
   if (!activePlayer || !activePlayer.isBot) return state;
 
-  // Controlla se esiste almeno una carta giocabile in mano con i gettoni e dadi attuali
-  const playableCards = activePlayer.hand.filter((card) => {
-    const cost = Math.max(0, card.cost - (activePlayer.modifiers.nextCardDiscount || 0));
-    if (activePlayer.tokens < cost) return false;
-    const check = canDiceSatisfyCardCost(
-      state.dice,
-      card.cost,
-      state.config,
-      activePlayer.modifiers.comboTierOffsetFromBoss
+  // Se il Bot ha una carta bloccata in mano (perché un altro giocatore l'ha già giocata) e può scambiarla col Mercato, la cambia!
+  const blockedInHand = activePlayer.hand.find((c) => isCardBlockedByTable(state, c).blocked);
+  const canSwapMarket =
+    (activePlayer.modifiers.freeMarketSwapsCount > 0 ||
+      (!state.hasUsedMarketThisTurn && activePlayer.tokens >= state.config.marketSwapCost)) &&
+    state.market.length > 0;
+
+  if (blockedInHand && canSwapMarket) {
+    const unblockedMarketCard = state.market.find(
+      (mc) => !isCardBlockedByTable(state, mc).blocked
     );
-    return check.satisfied;
-  });
+    if (unblockedMarketCard) {
+      return applyGameAction(state, {
+        type: 'MARKET_SWAP',
+        playerId: activePlayer.id,
+        handCardId: blockedInHand.id,
+        marketCardId: unblockedMarketCard.id,
+      });
+    }
+  }
+
+  // Controlla se esiste almeno una carta giocabile in mano
+  const playableEntries = activePlayer.hand
+    .map((card) => ({
+      card,
+      check: canPlayCardRightNow(state, activePlayer, card),
+    }))
+    .filter((entry) => entry.check.canPlayStandard || entry.check.canPlayNoComboAlt);
 
   // 1. Se può giocare subito una carta (preferendo quella di costo più alto), la gioca!
-  if (!state.mainActionTaken && playableCards.length > 0) {
-    playableCards.sort((a, b) => b.cost - a.cost);
-    const chosenCard = playableCards[0];
+  if (playableEntries.length > 0) {
+    playableEntries.sort((a, b) => b.card.cost - a.card.cost);
+    const chosen = playableEntries[0];
     const opponents = state.players.filter((p) => p.id !== activePlayer.id);
-    // Bersaglia chi ha più carte in gioco
     opponents.sort((a, b) => b.played.length - a.played.length);
     const targetPlayer = opponents[0];
 
     let nextState = applyGameAction(state, {
       type: 'PLAY_CARD',
       playerId: activePlayer.id,
-      cardId: chosenCard.id,
+      cardId: chosen.card.id,
       targetPlayerId: targetPlayer?.id,
+      useNoComboAlternateCost: !chosen.check.canPlayStandard && chosen.check.canPlayNoComboAlt,
     });
-    if (nextState.phase === 'PLAYING') {
+
+    // Se ha attivo After Party (2ª carta giocabile subito senza combinazione), lascia che il prossimo step giochi la 2ª carta
+    const updatedActive = nextState.players[nextState.currentPlayerIndex];
+    if (
+      nextState.phase === 'PLAYING' &&
+      (!updatedActive || !updatedActive.modifiers.canPlayExtraCardWithoutCombo)
+    ) {
       nextState = applyGameAction(nextState, {
         type: 'END_TURN',
         playerId: activePlayer.id,
@@ -108,10 +134,6 @@ export interface SimulationReport {
   cardStats: SimulationCardStat[];
 }
 
-/**
- * Simulatore Headless (Punto 2 del GDD):
- * Gioca N partite complete tra Bot per misurare durata media e win-rate delle carte.
- */
 export function runMonteCarloSimulation(
   catalog: CardData[],
   config: GameConfig,
@@ -130,10 +152,7 @@ export function runMonteCarloSimulation(
   }
 
   for (let g = 0; g < numGames; g++) {
-    let state = createInitialGameState(`SIM-${g}`, catalog, {
-      ...config,
-      // Durante la simulazione rapida usiamo un obiettivo semplice di completamento squadra o obiettivo pescato
-    });
+    let state = createInitialGameState(`SIM-${g}`, catalog, config);
 
     for (let p = 0; p < playerCount; p++) {
       state = applyGameAction(state, {
@@ -147,13 +166,12 @@ export function runMonteCarloSimulation(
 
     state = applyGameAction(state, { type: 'START_PACK_OPENING' });
 
-    // Se tutti i bot sono pronti in draft, passa a OBJECTIVE_PICK / PLAYING
     for (const p of state.players) {
       state = applyGameAction(state, { type: 'CONFIRM_DRAFT_TEAM', playerId: p.id });
     }
 
     let safetySteps = 0;
-    const maxSteps = 450;
+    const maxSteps = 500;
     while (state.phase === 'PLAYING' && safetySteps < maxSteps) {
       state = executeBotTurnStep(state);
       safetySteps++;
@@ -173,7 +191,6 @@ export function runMonteCarloSimulation(
   }
 
   const avgRounds = Number((totalRounds / Math.max(1, numGames)).toFixed(1));
-  // Stima ~0.45 minuti per giro completo al tavolo reale
   const estimatedMinutesPerGame = Number((avgRounds * 0.45 * (playerCount / 4)).toFixed(1));
 
   const cardStats: SimulationCardStat[] = Object.keys(metaByName).map((name) => {

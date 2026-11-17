@@ -3,7 +3,7 @@ import { CardData, ObjectiveCard } from './types';
 export interface ObjectiveEvaluation {
   satisfied: boolean;
   progressText: string;
-  mismatchedCardIds: string[]; // Carte in gioco che violano direttamente l'obiettivo (es. costo 6 vietato o troppe PROMO)
+  mismatchedCardIds: string[];
 }
 
 export function evaluateObjective(
@@ -85,13 +85,13 @@ export function evaluateObjective(
       };
     }
 
-    case 'MAX_CLASS_COUNT': {
-      const targetClass = objective.targetClass || 'PROMO';
-      const matching = playedCards.filter((c) => c.cardClass === targetClass);
+    case 'MAX_RARITY_COUNT': {
+      const targetRarity = objective.targetRarity || 'PROMO';
+      const matching = playedCards.filter((c) => c.rarity === targetRarity);
       const ruleMet = matching.length <= objective.targetNumber;
       return {
         satisfied: hasFullTeam && ruleMet,
-        progressText: `${targetClass}: ${matching.length} (max ${objective.targetNumber})`,
+        progressText: `${targetRarity}: ${matching.length} (max ${objective.targetNumber})`,
         mismatchedCardIds: ruleMet ? [] : matching.slice(objective.targetNumber).map((c) => c.id),
       };
     }
