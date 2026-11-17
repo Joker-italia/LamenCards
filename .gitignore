@@ -1,0 +1,23 @@
+# File di sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# File segreti o variabili d'ambiente locali
+.env
+.env.local
+
+# Dipendenze e ambienti virtuali (qualunque linguaggio sceglieremo)
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+
+# File temporanei di editor
+.vscode/
+.idea/
+*.swp
+*~

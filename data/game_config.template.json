@@ -1,0 +1,53 @@
+{
+  "_comment": "Configurazione generata dal GDD ufficiale di LAMENCARDS. Tutto ciò che nel GDD è 'in forse' o 'da definire' è esposto come parametro configurabile.",
+  "card_specs": {
+    "width_mm": 63,
+    "height_mm": 88,
+    "width_px": 630,
+    "height_px": 880,
+    "palette": {
+      "outer_border_cream": "#fffdf6",
+      "outline_night_blue": "#2b2350",
+      "background_mint": "#bff0da",
+      "name_label_coral": "#ea5444"
+    },
+    "classes": ["Dormienti", "Utenti", "PROMO"],
+    "rarities": ["Comune", "Rara", "Olografica"],
+    "effect_types": ["Aiuto", "Ostacolo", "Caos"]
+  },
+  "rules_confirmed": {
+    "min_players": 3,
+    "max_players": 6,
+    "packs_per_player": 2,
+    "cards_per_pack": 5,
+    "team_starters_count": 4,
+    "market_reserves_per_player": 2,
+    "dice_count": 5,
+    "dice_faces": 6,
+    "cash_in_base_tokens": 1,
+    "cash_in_bonus_faces": [5, 6],
+    "max_trade_offers_per_turn": 1,
+    "block_buying_when_one_card_from_victory": true,
+    "block_buying_played_cards": true
+  },
+  "rules_configurable": {
+    "allow_2_players_test_mode": true,
+    "starting_tokens": 3,
+    "max_rolls_per_turn": 3,
+    "paid_extra_roll_enabled": false,
+    "paid_extra_roll_cost": 1,
+    "unique_person_per_team": true,
+    "objective_visibility": "SECRET",
+    "market_swap_cost_tokens": 1,
+    "market_swap_timing": "FREE_ACTION_IN_TURN",
+    "player_trade_requires_card_swap": true,
+    "on_objective_mismatch_with_played_cards": "ALLOW_RETURN_TO_HAND",
+    "cost_combinations_table": {
+      "2": ["ONE_PAIR"],
+      "3": ["TWO_PAIR"],
+      "4": ["THREE_OF_A_KIND"],
+      "5": ["FULL_HOUSE", "STRAIGHT_4"],
+      "6": ["FOUR_OF_A_KIND", "STRAIGHT_5"]
+    }
+  }
+}
