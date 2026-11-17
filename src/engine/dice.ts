@@ -15,6 +15,11 @@ export function rollSingleDie(): number {
   return Math.floor(Math.random() * 6) + 1;
 }
 
+export function flipDieOppositeFace(val: number): number {
+  if (val < 1 || val > 6) return val;
+  return 7 - val; // 1<->6, 2<->5, 3<->4
+}
+
 /**
  * Restituisce tutte le combinazioni soddisfatte dai dadi correnti (4 o 5 dadi).
  */
@@ -68,24 +73,44 @@ export function evaluateDiceCombos(dice: number[]): DiceComboId[] {
 
 /**
  * Calcola quanti gettoni si ottengono con l'azione "Incassa":
- * 1 gettone base + 1 per ogni dado che mostra 5 o 6 (+ eventuali bonus "Il Pisolino Strategico").
+ * 1 gettone base + 1 per ogni dado 5 o 6 (oppure solo per ogni 6 se impostato in configurazione).
  */
-export function calculateCashInTokens(dice: number[], bonusTokens = 0): number {
-  const highDiceCount = dice.filter((d) => d === 5 || d === 6).length;
+export function calculateCashInTokens(
+  dice: number[],
+  bonusTokens = 0,
+  highFacesMode: 'FIVE_AND_SIX' | 'ONLY_SIX' = 'FIVE_AND_SIX'
+): number {
+  const highDiceCount =
+    highFacesMode === 'ONLY_SIX'
+      ? dice.filter((d) => d === 6).length
+      : dice.filter((d) => d === 5 || d === 6).length;
   return 1 + highDiceCount + bonusTokens;
 }
 
 /**
  * Verifica se i dadi attuali soddisfano la combinazione richiesta per un dato costo (2..6),
- * tenendo conto di eventuali penalità come "Il Boss" (+1 livello combinazione).
+ * tenendo conto di "Lo Sponsor" (-1 livello) e "Il Trip" (scambio 2<->6 e 3<->5).
  */
 export function canDiceSatisfyCardCost(
   dice: number[],
   baseCost: number,
   config: GameConfig,
-  comboTierOffset = 0
+  comboTierOffset = 0,
+  invertComboTable = false
 ): { satisfied: boolean; requiredCombos: DiceComboId[]; effectiveTier: number } {
-  const effectiveTier = Math.min(6, Math.max(2, baseCost + comboTierOffset));
+  let effectiveTier = Math.min(6, Math.max(2, baseCost + comboTierOffset));
+
+  if (invertComboTable) {
+    const invertedMap: Record<number, number> = {
+      2: 6,
+      3: 5,
+      4: 4,
+      5: 3,
+      6: 2,
+    };
+    effectiveTier = invertedMap[effectiveTier] || effectiveTier;
+  }
+
   const requiredCombos = config.costCombinationsTable[effectiveTier] || ['ONE_PAIR'];
   const achieved = evaluateDiceCombos(dice);
   const satisfied = requiredCombos.some((req) => achieved.includes(req));

@@ -16,9 +16,9 @@ interface RulesConfigModalProps {
 const ALL_COMBO_OPTIONS: DiceComboId[] = [
   'ONE_PAIR',
   'TWO_PAIR',
+  'STRAIGHT_4',
   'THREE_OF_A_KIND',
   'FULL_HOUSE',
-  'STRAIGHT_4',
   'FOUR_OF_A_KIND',
   'STRAIGHT_5',
 ];
@@ -74,7 +74,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
         className="panel-caramella"
         style={{
           width: '100%',
-          maxWidth: '880px',
+          maxWidth: '890px',
           maxHeight: '92dvh',
           display: 'flex',
           flexDirection: 'column',
@@ -99,7 +99,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
               ⚙️ Regole Configurabili (&quot;In forse&quot; dal GDD) &amp; Simulatore
             </h2>
             <div style={{ fontSize: '0.76rem', opacity: 0.85 }}>
-              Tutte le regole aperte del GDD sono parametri attivabili e testabili col simulatore Bot.
+              Modifica qualsiasi parametro aperto del GDD e lancia simulazioni Bot da 50–300 partite.
             </div>
           </div>
 
@@ -135,7 +135,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
             gap: '16px',
           }}
         >
-          {/* Sezione 1: Spacchettamento, Gettoni e Dadi */}
+          {/* Sezione 1: Parametri Numerici e Modalità */}
           <div
             style={{
               display: 'grid',
@@ -143,34 +143,6 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
               gap: '10px',
             }}
           >
-            <label style={boxLabelStyle}>
-              <span>📦 Bustine per giocatore (Draft)</span>
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={draft.packsPerPlayer}
-                onChange={(e) =>
-                  setDraft({ ...draft, packsPerPlayer: Number(e.target.value) })
-                }
-                style={fieldStyle}
-              />
-            </label>
-
-            <label style={boxLabelStyle}>
-              <span>🃏 Carte per bustina</span>
-              <input
-                type="number"
-                min={3}
-                max={10}
-                value={draft.cardsPerPack}
-                onChange={(e) =>
-                  setDraft({ ...draft, cardsPerPack: Number(e.target.value) })
-                }
-                style={fieldStyle}
-              />
-            </label>
-
             <label style={boxLabelStyle}>
               <span>🪙 Gettoni iniziali (Proposta GDD: 3)</span>
               <input
@@ -197,6 +169,23 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
                 }
                 style={fieldStyle}
               />
+            </label>
+
+            <label style={boxLabelStyle}>
+              <span>💰 Resa azione &quot;Incassa&quot; (Watchlist GDD)</span>
+              <select
+                value={draft.cashInHighFaces}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    cashInHighFaces: e.target.value as 'FIVE_AND_SIX' | 'ONLY_SIX',
+                  })
+                }
+                style={fieldStyle}
+              >
+                <option value="FIVE_AND_SIX">1 + ogni 5 o 6 (Media 4,5 🪙)</option>
+                <option value="ONLY_SIX">1 + solo ogni 6 (Partite più lunghe)</option>
+              </select>
             </label>
 
             <label style={boxLabelStyle}>
@@ -246,26 +235,9 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
                 <option value="PUBLIC">Scoperto / Visibile a tutti</option>
               </select>
             </label>
-
-            <label style={boxLabelStyle}>
-              <span>🔄 Se cambia Obiettivo e carte in gioco non lo rispettano</span>
-              <select
-                value={draft.onObjectiveMismatch}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    onObjectiveMismatch: e.target.value as GameConfig['onObjectiveMismatch'],
-                  })
-                }
-                style={fieldStyle}
-              >
-                <option value="ALLOW_RETURN_TO_HAND">Puoi riprenderle in mano</option>
-                <option value="NONE">Restano in gioco (attendi effetti)</option>
-              </select>
-            </label>
           </div>
 
-          {/* Sezione 2: Interruttori "In forse" */}
+          {/* Sezione 2: Interruttori "In forse" e Regola Personaggi Doppi */}
           <div
             style={{
               display: 'grid',
@@ -276,13 +248,29 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
             <label style={toggleRowStyle}>
               <input
                 type="checkbox"
-                checked={draft.paidExtraRollEnabled}
+                checked={draft.blockDuplicateCardsInPlay}
                 onChange={(e) =>
-                  setDraft({ ...draft, paidExtraRollEnabled: e.target.checked })
+                  setDraft({ ...draft, blockDuplicateCardsInPlay: e.target.checked })
                 }
               />
               <span>
-                <strong>In forse — 4° Tiro a pagamento:</strong> Paga {draft.paidExtraRollCost} gettone per un tiro extra
+                <strong>Personaggi Doppi (GDD p.5):</strong> Il primo che gioca una carta la blocca per tutti gli altri
+              </span>
+            </label>
+
+            <label style={toggleRowStyle}>
+              <input
+                type="checkbox"
+                checked={draft.blockAllVersionsOfSamePersonInPlay}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    blockAllVersionsOfSamePersonInPlay: e.target.checked,
+                  })
+                }
+              />
+              <span>
+                <strong>Blocco Esteso per Persona:</strong> Blocca anche versioni diverse della stessa persona in campo
               </span>
             </label>
 
@@ -295,20 +283,20 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
                 }
               />
               <span>
-                <strong>Unicità Persona:</strong> Max 1 versione dello stesso amico in squadra
+                <strong>Unicità Persona in Squadra:</strong> Max 1 versione dello stesso amico nei propri 4 titolari
               </span>
             </label>
 
             <label style={toggleRowStyle}>
               <input
                 type="checkbox"
-                checked={draft.enableCardEffects}
+                checked={draft.paidExtraRollEnabled}
                 onChange={(e) =>
-                  setDraft({ ...draft, enableCardEffects: e.target.checked })
+                  setDraft({ ...draft, paidExtraRollEnabled: e.target.checked })
                 }
               />
               <span>
-                <strong>Effetti Carte Attivi:</strong> Applica automaticamente gli effetti di prova
+                <strong>In forse — 4° Tiro a pagamento:</strong> Paga {draft.paidExtraRollCost} gettone per un 4° tiro
               </span>
             </label>
           </div>
@@ -323,7 +311,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
             }}
           >
             <div style={{ fontWeight: 900, fontSize: '0.88rem', marginBottom: '8px' }}>
-              🎲 Tabella Combinazioni Dadi per Costo (Tocca per attivare/disattivare)
+              🎲 Tabella Combinazioni Dadi per Costo (Default GDD v2: 2=Coppia, 3=Doppia Coppia, 4=Scala di 4, 5=Full, 6=Poker)
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {[2, 3, 4, 5, 6].map((cost) => {
@@ -379,7 +367,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
             </div>
           </div>
 
-          {/* Sezione 4: Simulatore Headless Bot (Centinaia di partite) */}
+          {/* Sezione 4: Simulatore Headless Bot (32 carte) */}
           <div
             style={{
               background: '#eefbf5',
@@ -399,10 +387,10 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
             >
               <div>
                 <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.1rem' }}>
-                  🤖 Simulatore Automatico Partite (Bot vs Bot)
+                  🤖 Simulatore Automatico Partite (Verifica le 32 carte)
                 </h3>
                 <div style={{ fontSize: '0.76rem' }}>
-                  Simula istantaneamente centinaia di partite con le regole attuali per misurare durata e bilanciamento.
+                  Controlla se <em>Il Letargo</em> o <em>After Party</em> dominano troppo e misura la durata media in 3–6 giocatori.
                 </div>
               </div>
 
@@ -462,7 +450,7 @@ export const RulesConfigModal: React.FC<RulesConfigModalProps> = ({
                   </div>
                 </div>
 
-                <div style={{ maxHeight: '190px', overflowY: 'auto' }}>
+                <div style={{ maxHeight: '210px', overflowY: 'auto' }}>
                   <table
                     style={{
                       width: '100%',

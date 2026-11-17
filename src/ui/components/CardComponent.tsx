@@ -20,7 +20,8 @@ const EFFECT_TYPE_COLORS: Record<string, { bg: string; text: string; icon: strin
 const CLASS_COLORS: Record<string, { bg: string; text: string }> = {
   Dormienti: { bg: '#60a5fa', text: '#ffffff' },
   Utenti: { bg: '#fbbf24', text: '#2b2350' },
-  PROMO: { bg: '#ec4899', text: '#ffffff' },
+  Festaioli: { bg: '#ec4899', text: '#ffffff' },
+  Scrocconi: { bg: '#a855f7', text: '#ffffff' },
 };
 
 function renderFriendStickerIllustration(card: CardData) {
@@ -41,7 +42,6 @@ function renderFriendStickerIllustration(card: CardData) {
     );
   }
 
-  // Illustrazione cartoon espressiva scontornata a sticker per ogni amico del set di prova
   const seed = card.avatarSeed || card.id;
   const hairColors: Record<string, string> = {
     coffee: '#4a2c11',
@@ -81,7 +81,6 @@ function renderFriendStickerIllustration(card: CardData) {
       className="sticker-cutout"
       style={{ width: '88%', height: '90%', display: 'block', margin: '0 auto' }}
     >
-      {/* Busto / Maglia */}
       <path
         d="M30 148 C30 108, 130 108, 130 148 Z"
         fill={shirt}
@@ -89,7 +88,6 @@ function renderFriendStickerIllustration(card: CardData) {
         strokeWidth="6"
         strokeLinejoin="round"
       />
-      {/* Collo */}
       <rect
         x="68"
         y="92"
@@ -100,10 +98,8 @@ function renderFriendStickerIllustration(card: CardData) {
         stroke="#2b2350"
         strokeWidth="5"
       />
-      {/* Orecchie */}
       <circle cx="38" cy="68" r="11" fill="#ffdbb5" stroke="#2b2350" strokeWidth="5" />
       <circle cx="122" cy="68" r="11" fill="#ffdbb5" stroke="#2b2350" strokeWidth="5" />
-      {/* Viso */}
       <rect
         x="42"
         y="30"
@@ -114,7 +110,6 @@ function renderFriendStickerIllustration(card: CardData) {
         stroke="#2b2350"
         strokeWidth="6"
       />
-      {/* Capelli / Cappello */}
       <path
         d="M38 56 C36 22, 124 22, 122 56 C112 38, 85 36, 42 52 Z"
         fill={hair}
@@ -122,7 +117,6 @@ function renderFriendStickerIllustration(card: CardData) {
         strokeWidth="6"
         strokeLinejoin="round"
       />
-      {/* Occhi (chiusi se Dormiente, occhiali da sole se Boss/Re) */}
       {card.cardClass === 'Dormienti' ? (
         <>
           <path d="M56 66 Q65 74 74 66" fill="none" stroke="#2b2350" strokeWidth="5" strokeLinecap="round" />
@@ -131,7 +125,7 @@ function renderFriendStickerIllustration(card: CardData) {
             Zzz
           </text>
         </>
-      ) : seed === 'boss' || seed === 'partyking' ? (
+      ) : seed === 'boss' || seed === 'partyking' || card.cardClass === 'Festaioli' ? (
         <>
           <rect x="50" y="56" width="27" height="16" rx="4" fill="#2b2350" />
           <rect x="83" y="56" width="27" height="16" rx="4" fill="#2b2350" />
@@ -145,7 +139,6 @@ function renderFriendStickerIllustration(card: CardData) {
           <circle cx="94" cy="62" r="2" fill="#ffffff" />
         </>
       )}
-      {/* Sorriso */}
       <path
         d="M64 84 Q80 96 96 84"
         fill="none"
@@ -153,7 +146,6 @@ function renderFriendStickerIllustration(card: CardData) {
         strokeWidth="5"
         strokeLinecap="round"
       />
-      {/* Guance */}
       <ellipse cx="54" cy="76" rx="6" ry="3.5" fill="#ea5444" opacity="0.55" />
       <ellipse cx="106" cy="76" rx="6" ry="3.5" fill="#ea5444" opacity="0.55" />
     </svg>
@@ -170,7 +162,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
   onClick,
 }) => {
   const widthMap = {
-    sm: '132px',
+    sm: '134px',
     md: '188px',
     lg: '246px',
   };
@@ -204,7 +196,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
     );
   }
 
-  const isHolo = card.rarity === 'Olografica' || card.cardClass === 'PROMO';
+  const isHolo = card.rarity === 'PROMO';
   const effectStyle = EFFECT_TYPE_COLORS[card.effectType] || EFFECT_TYPE_COLORS.Aiuto;
   const classStyle = CLASS_COLORS[card.cardClass] || { bg: '#e2e8f0', text: '#2b2350' };
   const displayedCost = effectiveCost !== undefined ? effectiveCost : card.cost;
@@ -231,13 +223,13 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             top: '6px',
             right: '6px',
             zIndex: 10,
-            background: '#ffd166',
-            color: '#2b2350',
+            background: selectedBadge.includes('BLOCCATA') ? '#ea5444' : '#ffd166',
+            color: selectedBadge.includes('BLOCCATA') ? '#ffffff' : '#2b2350',
             border: '2px solid #2b2350',
             borderRadius: '999px',
             padding: '2px 8px',
             fontFamily: 'var(--font-effect)',
-            fontSize: '0.68rem',
+            fontSize: '0.64rem',
             fontWeight: 800,
             boxShadow: '0 2px 0 #2b2350',
           }}
@@ -257,7 +249,6 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             zIndex: 2,
           }}
         >
-          {/* Bollo Costo Gettoni */}
           <div
             title={`Costo: ${displayedCost} gettoni`}
             style={{
@@ -279,7 +270,6 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             {displayedCost}
           </div>
 
-          {/* Pill Classe */}
           <span
             style={{
               background: classStyle.bg,
@@ -288,7 +278,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               borderRadius: '999px',
               padding: size === 'sm' ? '1px 6px' : '2px 9px',
               fontFamily: 'var(--font-effect)',
-              fontSize: size === 'sm' ? '0.58rem' : '0.68rem',
+              fontSize: size === 'sm' ? '0.56rem' : '0.66rem',
               fontWeight: 700,
               boxShadow: '0 2px 0 #2b2350',
             }}
@@ -297,7 +287,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           </span>
         </div>
 
-        {/* AREA FOTO AMICO SCONTORNATA (Domina la carta) */}
+        {/* AREA FOTO AMICO SCONTORNATA */}
         <div
           style={{
             flex: 1,
@@ -312,7 +302,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           {renderFriendStickerIllustration(card)}
         </div>
 
-        {/* ETICHETTA NOME CORALLO #ea5444 (Scritta bianca) */}
+        {/* ETICHETTA NOME CORALLO #ea5444 */}
         <div
           className="lamen-name-banner"
           style={{
@@ -322,7 +312,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
         >
           <div
             style={{
-              fontSize: size === 'sm' ? '0.72rem' : size === 'lg' ? '1.02rem' : '0.86rem',
+              fontSize: size === 'sm' ? '0.7rem' : size === 'lg' ? '1rem' : '0.84rem',
               lineHeight: 1.1,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -335,7 +325,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             <div
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: size === 'sm' ? '0.52rem' : '0.62rem',
+                fontSize: size === 'sm' ? '0.5rem' : '0.6rem',
                 fontWeight: 700,
                 opacity: 0.95,
                 whiteSpace: 'nowrap',
@@ -348,13 +338,13 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           )}
         </div>
 
-        {/* BOX EFFETTO (1 o 2 righe + Tipo Effetto) */}
+        {/* BOX EFFETTO */}
         <div
           style={{
             background: '#fffdf6',
             color: '#2b2350',
             padding: size === 'sm' ? '4px 5px' : '6px 7px',
-            minHeight: size === 'sm' ? '44px' : size === 'lg' ? '76px' : '60px',
+            minHeight: size === 'sm' ? '46px' : size === 'lg' ? '76px' : '60px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
@@ -388,17 +378,17 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               style={{
                 fontSize: size === 'sm' ? '0.48rem' : '0.56rem',
                 fontWeight: 800,
-                opacity: 0.65,
+                opacity: 0.75,
               }}
             >
-              #{card.setNumber} • {card.rarity[0]}
+              #{card.setNumber} • {card.rarity === 'PROMO' ? '✨ PROMO' : card.rarity[0]}
             </span>
           </div>
 
           <div
             style={{
               fontFamily: 'var(--font-body)',
-              fontSize: size === 'sm' ? '0.52rem' : size === 'lg' ? '0.72rem' : '0.62rem',
+              fontSize: size === 'sm' ? '0.51rem' : size === 'lg' ? '0.72rem' : '0.61rem',
               fontWeight: 700,
               lineHeight: 1.18,
               display: '-webkit-box',

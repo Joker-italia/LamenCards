@@ -15,6 +15,7 @@ __pycache__/
 venv/
 dist/
 build/
+.vite/
 
 # File temporanei di editor
 .vscode/

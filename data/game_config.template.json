@@ -1,5 +1,5 @@
 {
-  "_comment": "Configurazione generata dal GDD ufficiale di LAMENCARDS. Tutto ciò che nel GDD è 'in forse' o 'da definire' è esposto come parametro configurabile.",
+  "_comment": "Configurazione generata dal GDD ufficiale di LAMENCARDS (v2 - 11 pagine). Tutto ciò che nel GDD è 'in forse' o 'da definire' è esposto come parametro configurabile.",
   "card_specs": {
     "width_mm": 63,
     "height_mm": 88,
@@ -11,8 +11,8 @@
       "background_mint": "#bff0da",
       "name_label_coral": "#ea5444"
     },
-    "classes": ["Dormienti", "Utenti", "PROMO"],
-    "rarities": ["Comune", "Rara", "Olografica"],
+    "classes": ["Dormienti", "Utenti", "Festaioli", "Scrocconi"],
+    "rarities": ["Comune", "Rara", "Olografica (PROMO)"],
     "effect_types": ["Aiuto", "Ostacolo", "Caos"]
   },
   "rules_confirmed": {
@@ -20,23 +20,27 @@
     "max_players": 6,
     "packs_per_player": 2,
     "cards_per_pack": 5,
+    "pack_structure": "1_PER_CLASS_PLUS_1_JOKER",
     "team_starters_count": 4,
     "market_reserves_per_player": 2,
+    "discarded_to_collection_per_player": 4,
     "dice_count": 5,
     "dice_faces": 6,
     "cash_in_base_tokens": 1,
-    "cash_in_bonus_faces": [5, 6],
     "max_trade_offers_per_turn": 1,
     "block_buying_when_one_card_from_victory": true,
-    "block_buying_played_cards": true
+    "block_buying_played_cards": true,
+    "no_duplicate_card_in_own_team": true,
+    "played_card_blocks_identical_copies_for_others": true
   },
   "rules_configurable": {
-    "allow_2_players_test_mode": true,
     "starting_tokens": 3,
     "max_rolls_per_turn": 3,
     "paid_extra_roll_enabled": false,
     "paid_extra_roll_cost": 1,
+    "cash_in_bonus_faces": [5, 6],
     "unique_person_per_team": true,
+    "block_all_versions_of_same_person_in_play": false,
     "objective_visibility": "SECRET",
     "market_swap_cost_tokens": 1,
     "market_swap_timing": "FREE_ACTION_IN_TURN",
@@ -45,9 +49,9 @@
     "cost_combinations_table": {
       "2": ["ONE_PAIR"],
       "3": ["TWO_PAIR"],
-      "4": ["THREE_OF_A_KIND"],
-      "5": ["FULL_HOUSE", "STRAIGHT_4"],
-      "6": ["FOUR_OF_A_KIND", "STRAIGHT_5"]
+      "4": ["STRAIGHT_4"],
+      "5": ["FULL_HOUSE"],
+      "6": ["FOUR_OF_A_KIND"]
     }
   }
 }

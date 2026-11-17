@@ -3,11 +3,16 @@ import { DEFAULT_CARDS, DEFAULT_GAME_CONFIG } from './data/defaultData';
 import { executeBotTurnStep } from './engine/botSimulator';
 import {
   calculateCashInTokens,
-  canDiceSatisfyCardCost,
   COMBO_LABELS_IT,
   evaluateDiceCombos,
+  flipDieOppositeFace,
 } from './engine/dice';
-import { applyGameAction, createInitialGameState } from './engine/gameEngine';
+import {
+  applyGameAction,
+  canPlayCardRightNow,
+  createInitialGameState,
+  hasLuckyDieInPlay,
+} from './engine/gameEngine';
 import { evaluateObjective } from './engine/objectives';
 import { CardData, GameAction, GameConfig, GameState } from './engine/types';
 import { P2PRoomManager } from './network/p2pRoom';
@@ -16,8 +21,8 @@ import { CardEditorModal } from './ui/components/CardEditorModal';
 import { ReferenceCardModal } from './ui/components/ReferenceCardModal';
 import { RulesConfigModal } from './ui/components/RulesConfigModal';
 
-const STORAGE_CARDS_KEY = 'lamencards_custom_catalog_v1';
-const STORAGE_CONFIG_KEY = 'lamencards_custom_config_v1';
+const STORAGE_CARDS_KEY = 'lamencards_custom_catalog_v2';
+const STORAGE_CONFIG_KEY = 'lamencards_custom_config_v2';
 const STORAGE_PLAYER_ID_KEY = 'lamencards_device_player_id_v1';
 const STORAGE_PLAYER_NAME_KEY = 'lamencards_device_player_name_v1';
 
@@ -49,7 +54,7 @@ export const App: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_CARDS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 6) return parsed;
+        if (Array.isArray(parsed) && parsed.length >= 8) return parsed;
       }
     } catch {
       // fallback
@@ -67,7 +72,6 @@ export const App: React.FC = () => {
     return DEFAULT_GAME_CONFIG;
   });
 
-  // Stato connessione stanza P2P
   const [inRoom, setInRoom] = useState<boolean>(false);
   const [roomRole, setRoomRole] = useState<'HOST' | 'CLIENT'>('HOST');
   const [joinCodeInput, setJoinCodeInput] = useState<string>(() => {
@@ -80,7 +84,6 @@ export const App: React.FC = () => {
     createInitialGameState('LAMEN', catalog, savedConfig)
   );
 
-  // Modali UI
   const [showCardEditor, setShowCardEditor] = useState<boolean>(false);
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showReferenceModal, setShowReferenceModal] = useState<boolean>(false);
@@ -88,17 +91,17 @@ export const App: React.FC = () => {
   const [showLogDrawer, setShowLogDrawer] = useState<boolean>(false);
   const [showTradeModal, setShowTradeModal] = useState<boolean>(false);
 
-  // Selettori interattivi per Mercato, Acquisti e Carte con bersaglio
   const [selectedMarketCardId, setSelectedMarketCardId] = useState<string>('');
   const [selectedHandSwapCardId, setSelectedHandSwapCardId] = useState<string>('');
   const [tradeTargetPlayerId, setTradeTargetPlayerId] = useState<string>('');
   const [tradeOfferedTokens, setTradeOfferedTokens] = useState<number>(2);
-  const [pendingCardToPlay, setPendingCardToPlay] = useState<CardData | null>(null);
+  const [pendingCardToPlay, setPendingCardToPlay] = useState<{
+    card: CardData;
+    useNoComboAlternateCost?: boolean;
+  } | null>(null);
   const [draftSelectionMode, setDraftSelectionMode] = useState<'STARTER' | 'RESERVE'>('STARTER');
 
   const roomManagerRef = useRef<P2PRoomManager | null>(null);
-  const stateRef = useRef<GameState>(gameState);
-  stateRef.current = gameState;
 
   const dispatchGameAction = (action: GameAction) => {
     if (!inRoom || roomRole === 'HOST') {
@@ -112,7 +115,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Gestione automatica del turno dei Bot quando l'utente è Host
   useEffect(() => {
     if (!inRoom || roomRole !== 'HOST') return;
     if (gameState.phase !== 'PLAYING') return;
@@ -250,13 +252,25 @@ export const App: React.FC = () => {
           0
         )
       : 0;
-    return calculateCashInTokens(gameState.dice, passiveBonus);
-  }, [gameState.dice, gameState.config.enableCardEffects, me]);
+    return calculateCashInTokens(
+      gameState.dice,
+      passiveBonus,
+      gameState.config.cashInHighFaces
+    );
+  }, [gameState.dice, gameState.config.enableCardEffects, gameState.config.cashInHighFaces, me]);
 
   const myObjectiveEval = useMemo(() => {
     if (!me) return null;
     return evaluateObjective(me.played, me.objective, gameState.config.teamSize);
   }, [me, gameState.config.teamSize]);
+
+  const canUseLuckyDieFlip = Boolean(
+    isMyTurn &&
+      me &&
+      hasLuckyDieInPlay(me, gameState.config.enableCardEffects) &&
+      !me.modifiers.usedLuckyDieFlipThisTurn &&
+      !gameState.mainActionTaken
+  );
 
   const shareInviteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?room=${gameState.roomCode}`;
@@ -358,7 +372,7 @@ export const App: React.FC = () => {
           gap: '16px',
         }}
       >
-        {/* 1. SCHERMATA HOME (Non ancora in una stanza) */}
+        {/* 1. SCHERMATA HOME */}
         {!inRoom && (
           <div
             style={{
@@ -368,7 +382,6 @@ export const App: React.FC = () => {
               alignItems: 'start',
             }}
           >
-            {/* Card Accesso Stanza P2P */}
             <div className="panel-caramella" style={{ padding: '20px' }}>
               <h1
                 style={{
@@ -388,7 +401,7 @@ export const App: React.FC = () => {
                 Il tuo Nome o Soprannome:
                 <input
                   type="text"
-                  placeholder="Es. Giorgio, Marco, Luca..."
+                  placeholder="Es. Giorgio, Mariong, Luca..."
                   value={myPlayerName}
                   onChange={(e) => setMyPlayerName(e.target.value)}
                   style={{
@@ -450,7 +463,7 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Vetrina Carte Stile Caramella */}
+            {/* Vetrina Set di Prova 32 Carte (4 Classi) */}
             <div className="panel-night" style={{ padding: '18px' }}>
               <div
                 style={{
@@ -460,15 +473,20 @@ export const App: React.FC = () => {
                   marginBottom: '10px',
                 }}
               >
-                <h2 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.25rem' }}>
-                  ✨ Set di Prova del GDD ({catalog.length} Carte)
-                </h2>
+                <div>
+                  <h2 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.25rem' }}>
+                    ✨ Set di Prova GDD: {catalog.length} Carte (4 Classi)
+                  </h2>
+                  <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>
+                    Dormienti • Utenti • Festaioli • Scrocconi (8 carte per classe)
+                  </div>
+                </div>
                 <button
                   className="btn-caramella btn-mint"
                   style={{ padding: '4px 10px', fontSize: '0.75rem' }}
                   onClick={() => setShowCardEditor(true)}
                 >
-                  Modifica Carte
+                  Apri Editor
                 </button>
               </div>
               <div
@@ -479,7 +497,7 @@ export const App: React.FC = () => {
                   paddingBottom: '8px',
                 }}
               >
-                {catalog.slice(0, 6).map((c) => (
+                {catalog.map((c) => (
                   <div key={c.id} style={{ flexShrink: 0 }}>
                     <CardComponent
                       card={c}
@@ -551,7 +569,7 @@ export const App: React.FC = () => {
             </div>
 
             <h3 style={{ margin: '0 0 10px', fontFamily: 'var(--font-title)', fontSize: '1.15rem' }}>
-              👥 Giocatori Connessi ({gameState.players.length}/{gameState.config.maxPlayers}) — Consigliati: 3–6 giocatori
+              👥 Giocatori Connessi ({gameState.players.length}/{gameState.config.maxPlayers}) — Regola GDD: 3–6 giocatori
             </h3>
 
             <div
@@ -613,15 +631,13 @@ export const App: React.FC = () => {
                 fontSize: '0.82rem',
               }}
             >
-              <strong>Regole attive per questa partita:</strong> Ogni giocatore apre{' '}
+              <strong>Preparazione (Draft GDD):</strong> Ognuno apre{' '}
               <strong>
                 {gameState.config.packsPerPlayer} bustine da {gameState.config.cardsPerPack} carte
               </strong>{' '}
-              ({gameState.config.packsPerPlayer * gameState.config.cardsPerPack} carte totali), sceglie{' '}
-              <strong>{gameState.config.teamSize} titolari</strong> +{' '}
-              <strong>{gameState.config.reserveSize} riserve</strong> per il Mercato, parte con{' '}
-              <strong>{gameState.config.startingTokens} gettoni</strong> e pesca{' '}
-              <strong>2 Obiettivi</strong>.
+              (ogni bustina contiene 1 carta per classe + 1 carta jolly). Dalle 10 carte ognuno ne tiene{' '}
+              <strong>6</strong>: <strong>{gameState.config.teamSize} titolari</strong> (squadra coperta) e{' '}
+              <strong>{gameState.config.reserveSize} riserve</strong> (Mercato), mentre le altre 4 vanno in collezione.
             </div>
 
             {roomRole === 'HOST' ? (
@@ -631,7 +647,7 @@ export const App: React.FC = () => {
                 disabled={gameState.players.length < 2}
                 onClick={() => dispatchGameAction({ type: 'START_PACK_OPENING' })}
               >
-                📦 Distribuisci le Bustine e Inizia lo Spacchettamento!
+                📦 Distribuisci le 2 Bustine da 5 Carte e Inizia il Draft!
               </button>
             ) : (
               <div style={{ textAlign: 'center', fontWeight: 800, padding: '10px' }}>
@@ -641,7 +657,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 3. FASE SPACCHETTAMENTO & SCELTA SQUADRA (2 Pacchetti da 5 carte) */}
+        {/* 3. FASE SPACCHETTAMENTO & SCELTA SQUADRA */}
         {inRoom && gameState.phase === 'PACK_OPENING' && me && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div className="panel-caramella" style={{ padding: '16px' }}>
@@ -656,29 +672,25 @@ export const App: React.FC = () => {
               >
                 <div>
                   <h2 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.45rem' }}>
-                    📦 Fase 1: Spacchettamento &amp; Composizione Squadra
+                    📦 Fase 1: Spacchettamento &amp; Draft Squadra
                   </h2>
                   <p style={{ margin: '2px 0 0', fontSize: '0.82rem', fontWeight: 700 }}>
-                    Apri i tuoi <strong>{gameState.config.packsPerPlayer} pacchetti da {gameState.config.cardsPerPack} carte</strong>, poi scegli{' '}
-                    <strong>{gameState.config.teamSize} Titolari</strong> (la tua squadra coperta) e{' '}
-                    <strong>{gameState.config.reserveSize} Riserve</strong> (che andranno nel Mercato).
+                    Apri le tue <strong>2 bustine da 5 carte</strong> (1 per classe + 1 jolly), poi scegli{' '}
+                    <strong>4 Titolari</strong> (senza copie doppie) e <strong>2 Riserve</strong> per il Mercato. Le altre 4 tornano in collezione.
                   </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    className="btn-caramella btn-gold"
-                    style={{ fontSize: '0.8rem', padding: '7px 12px' }}
-                    onClick={() =>
-                      dispatchGameAction({ type: 'AUTO_SELECT_DRAFT', playerId: me.id })
-                    }
-                  >
-                    ⚡ Apri Tutto &amp; Scelta Rapida
-                  </button>
-                </div>
+                <button
+                  className="btn-caramella btn-gold"
+                  style={{ fontSize: '0.8rem', padding: '7px 12px' }}
+                  onClick={() =>
+                    dispatchGameAction({ type: 'AUTO_SELECT_DRAFT', playerId: me.id })
+                  }
+                >
+                  ⚡ Apri Tutto &amp; Scelta Rapida
+                </button>
               </div>
 
-              {/* Bustine ancora chiuse da toccare per aprire */}
               {me.unopenedPacks.length > 0 && (
                 <div
                   style={{
@@ -697,7 +709,7 @@ export const App: React.FC = () => {
                       marginBottom: '10px',
                     }}
                   >
-                    ✨ Tocca una bustina per strapparla e scoprire le {gameState.config.cardsPerPack} carte! ({me.unopenedPacks.length} rimaste)
+                    ✨ Tocca una bustina per aprirla! ({me.unopenedPacks.length} rimaste)
                   </div>
                   <div
                     style={{
@@ -711,7 +723,14 @@ export const App: React.FC = () => {
                       <div
                         key={idx}
                         className="booster-pack"
-                        style={{ width: '148px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}
+                        style={{
+                          width: '148px',
+                          padding: '14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
                         onClick={() =>
                           dispatchGameAction({ type: 'OPEN_NEXT_PACK', playerId: me.id })
                         }
@@ -751,7 +770,6 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Carte sbustate (Pool di 10 carte) */}
               {me.pulledPool.length > 0 && (
                 <div style={{ marginTop: '14px' }}>
                   <div
@@ -812,7 +830,7 @@ export const App: React.FC = () => {
                     >
                       {me.draftReady
                         ? '✓ Squadra Confermata (In attesa degli altri...)'
-                        : `✓ Conferma ${gameState.config.teamSize} Titolari + ${gameState.config.reserveSize} Riserve`}
+                        : `✓ Pronti! Conferma ${gameState.config.teamSize} Titolari + ${gameState.config.reserveSize} Riserve`}
                     </button>
                   </div>
 
@@ -855,7 +873,6 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Stato preparazione degli altri amici */}
               <div
                 style={{
                   marginTop: '14px',
@@ -888,14 +905,14 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 4. FASE SCELTA CARTA OBIETTIVO (Dopo aver deciso le squadre!) */}
+        {/* 4. FASE SCELTA CARTA OBIETTIVO */}
         {inRoom && gameState.phase === 'OBJECTIVE_PICK' && me && (
           <div className="panel-caramella" style={{ padding: '20px', textAlign: 'center' }}>
             <h2 style={{ margin: '0 0 6px', fontFamily: 'var(--font-title)', fontSize: '1.5rem' }}>
-              🎯 Scegli il tuo Obiettivo Segreto!
+              🎯 Scegli il tuo Obiettivo Coperto!
             </h2>
             <p style={{ margin: '0 0 16px', fontSize: '0.86rem', fontWeight: 700 }}>
-              Come previsto dal GDD, ora che le squadre sono decise peschi <strong>2 carte Obiettivo</strong>: scegline <strong>1 da tenere coperta</strong> per tutta la partita e scarta l&apos;altra.
+              Ora che le squadre sono confermate e le riserve sono nel Mercato, peschi <strong>2 carte Obiettivo</strong>: tienine <strong>1 coperta</strong> e scarta l&apos;altra.
             </p>
 
             <div
@@ -984,10 +1001,9 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 5. TAVOLO DI GIOCO PRINCIPALE (PLAYING & GAME_OVER) */}
+        {/* 5. TAVOLO DI GIOCO PRINCIPALE */}
         {inRoom && (gameState.phase === 'PLAYING' || gameState.phase === 'GAME_OVER') && me && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {/* Banner Vincitore se la partita è terminata */}
             {gameState.phase === 'GAME_OVER' && (
               <div
                 className="panel-caramella"
@@ -1002,7 +1018,7 @@ export const App: React.FC = () => {
                   {gameState.players.find((p) => p.id === gameState.winnerPlayerId)?.name}
                 </h2>
                 <p style={{ margin: '0 0 12px', fontWeight: 800 }}>
-                  Ha schierato tutte e {gameState.config.teamSize} le carte della sua squadra rispettando il proprio Obiettivo!
+                  Ha messo in gioco tutte e {gameState.config.teamSize} le carte della sua squadra rispettando il proprio Obiettivo!
                 </p>
                 {roomRole === 'HOST' && (
                   <button
@@ -1015,7 +1031,7 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* Barra Giocatori al Tavolo (Senso Orario) + Accesso Rapido Mercato & Mosse */}
+            {/* Barra Giocatori al Tavolo */}
             <div className="panel-night" style={{ padding: '12px' }}>
               <div
                 style={{
@@ -1044,6 +1060,20 @@ export const App: React.FC = () => {
                       TOCCA A TE!
                     </span>
                   )}
+                  {gameState.invertComboTableUntilPlayerId && (
+                    <span
+                      style={{
+                        marginLeft: '8px',
+                        background: '#8b5cf6',
+                        color: '#ffffff',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '0.72rem',
+                      }}
+                    >
+                      🌀 Il Trip attivo (2↔6, 3↔5)
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -1064,16 +1094,20 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Strip dei giocatori */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
                   gap: '8px',
                 }}
               >
                 {gameState.players.map((p, idx) => {
                   const isTurn = idx === gameState.currentPlayerIndex;
+                  const canSeeObj =
+                    p.id === me.id ||
+                    gameState.config.objectiveVisibility === 'PUBLIC' ||
+                    me.modifiers.revealedObjectivePlayerIds.includes(p.id);
+
                   return (
                     <div
                       key={p.id}
@@ -1117,7 +1151,19 @@ export const App: React.FC = () => {
                         <strong>{p.hand.length}</strong>
                       </div>
 
-                      {/* Mini-lista carte scoperte in gioco */}
+                      {canSeeObj && p.objective && p.id !== me.id && (
+                        <div
+                          style={{
+                            fontSize: '0.66rem',
+                            marginTop: '3px',
+                            color: isTurn ? '#c93b2b' : '#ffd166',
+                            fontWeight: 800,
+                          }}
+                        >
+                          👁️ Obiettivo: {p.objective.title}
+                        </div>
+                      )}
+
                       {p.played.length > 0 && (
                         <div
                           style={{
@@ -1151,7 +1197,7 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* NOTIFICA SE QUALCUNO TI HA FATTO UN'OFFERTA DI ACQUISTO */}
+            {/* Notifica Offerta di Acquisto */}
             {gameState.pendingTradeOffer &&
               gameState.pendingTradeOffer.toPlayerId === me.id && (
                 <div
@@ -1208,7 +1254,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-            {/* CENTRO TAVOLO: VASSOIO DEI 5 DADI & SCELTA (GIOCA O INCASSA) */}
+            {/* CENTRO TAVOLO: VASSOIO DEI DADI & SCELTA (GIOCA O INCASSA) */}
             <div className="panel-caramella" style={{ padding: '16px' }}>
               <div
                 style={{
@@ -1222,7 +1268,7 @@ export const App: React.FC = () => {
               >
                 <div>
                   <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.22rem' }}>
-                    🎲 I 5 Dadi del Turno ({activePlayer?.name})
+                    🎲 I {gameState.dice.length} Dadi del Turno ({activePlayer?.name})
                   </h3>
                   <div style={{ fontSize: '0.78rem', fontWeight: 700 }}>
                     {isMyTurn && !gameState.mainActionTaken
@@ -1231,7 +1277,6 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Badge Combinazioni Attuali */}
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {achievedCombos.length > 0 ? (
                     achievedCombos.map((combo) => (
@@ -1266,7 +1311,7 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* I 5 Dadi */}
+              {/* Dadi + eventuale bottone "Il Dado Fortunato" (gira faccia opposta 1<->6, 2<->5, 3<->4) */}
               <div
                 style={{
                   display: 'flex',
@@ -1281,35 +1326,56 @@ export const App: React.FC = () => {
                   return (
                     <div
                       key={idx}
-                      className={`die-box ${kept ? 'kept' : ''}`}
-                      onClick={() => {
-                        if (isMyTurn && !gameState.mainActionTaken) {
-                          dispatchGameAction({
-                            type: 'TOGGLE_KEEP_DIE',
-                            playerId: me.id,
-                            dieIndex: idx,
-                          });
-                        }
-                      }}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
                     >
-                      <span>{val}</span>
-                      <span
-                        style={{
-                          fontSize: '0.52rem',
-                          fontFamily: 'var(--font-effect)',
-                          fontWeight: 800,
-                          marginTop: '-2px',
+                      <div
+                        className={`die-box ${kept ? 'kept' : ''}`}
+                        onClick={() => {
+                          if (isMyTurn && !gameState.mainActionTaken) {
+                            dispatchGameAction({
+                              type: 'TOGGLE_KEEP_DIE',
+                              playerId: me.id,
+                              dieIndex: idx,
+                            });
+                          }
                         }}
                       >
-                        {kept ? 'TENUTO' : 'LIBERO'}
-                      </span>
+                        <span>{val}</span>
+                        <span
+                          style={{
+                            fontSize: '0.52rem',
+                            fontFamily: 'var(--font-effect)',
+                            fontWeight: 800,
+                            marginTop: '-2px',
+                          }}
+                        >
+                          {kept ? 'TENUTO' : 'LIBERO'}
+                        </span>
+                      </div>
+
+                      {canUseLuckyDieFlip && (
+                        <button
+                          type="button"
+                          className="btn-caramella btn-mint"
+                          style={{ padding: '2px 6px', fontSize: '0.62rem' }}
+                          onClick={() =>
+                            dispatchGameAction({
+                              type: 'FLIP_DIE_OPPOSITE',
+                              playerId: me.id,
+                              dieIndex: idx,
+                            })
+                          }
+                        >
+                          🔄 Gira ({flipDieOppositeFace(val)})
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
 
-              {/* Se il giocatore ha il Dado Jolly ("La Fortuna del Principiante") */}
-              {isMyTurn && me.modifiers.hasJokerDieNextRoll && !gameState.mainActionTaken && (
+              {/* Banner After Party se attivo */}
+              {isMyTurn && me.modifiers.canPlayExtraCardWithoutCombo && (
                 <div
                   style={{
                     background: '#bff0da',
@@ -1317,35 +1383,12 @@ export const App: React.FC = () => {
                     borderRadius: '12px',
                     padding: '8px 12px',
                     marginBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '8px',
-                    fontSize: '0.8rem',
-                    fontWeight: 800,
+                    fontWeight: 900,
+                    fontSize: '0.82rem',
+                    textAlign: 'center',
                   }}
                 >
-                  <span>🍀 Hai un Dado Jolly! Scegli il valore per il 1° dado:</span>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    {[1, 2, 3, 4, 5, 6].map((v) => (
-                      <button
-                        key={v}
-                        className="btn-caramella btn-gold"
-                        style={{ padding: '3px 9px', fontSize: '0.8rem' }}
-                        onClick={() =>
-                          dispatchGameAction({
-                            type: 'SET_JOKER_DIE_VALUE',
-                            playerId: me.id,
-                            dieIndex: 0,
-                            value: v,
-                          })
-                        }
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
+                  🎉 <strong>After Party attivo!</strong> Puoi giocare subito un&apos;altra carta dalla mano pagando solo i gettoni (senza combinazione di dadi)!
                 </div>
               )}
 
@@ -1402,7 +1445,11 @@ export const App: React.FC = () => {
                     className="btn-caramella btn-cream"
                     onClick={() => setShowMarketDrawer(true)}
                   >
-                    🏪 Scambia col Mercato ({gameState.config.marketSwapCost} 🪙)
+                    🏪 Scambia col Mercato (
+                    {me.modifiers.freeMarketSwapsCount > 0
+                      ? 'GRATIS!'
+                      : `${gameState.config.marketSwapCost} 🪙`}
+                    )
                   </button>
 
                   {me.played.length < gameState.config.teamSize - 1 &&
@@ -1438,7 +1485,6 @@ export const App: React.FC = () => {
                 gap: '12px',
               }}
             >
-              {/* Box Obiettivo */}
               <div className="panel-night" style={{ padding: '12px 14px' }}>
                 <div
                   style={{
@@ -1474,44 +1520,21 @@ export const App: React.FC = () => {
                 <div style={{ fontSize: '0.8rem', marginTop: '4px', opacity: 0.9 }}>
                   {me.objective?.description}
                 </div>
-
-                {/* Se Cambio di Programma ha offerto un 2° Obiettivo */}
-                {me.objectiveCandidates.length > 1 && (
-                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {me.objectiveCandidates.map((cand) => (
-                      <button
-                        key={cand.id}
-                        className="btn-caramella btn-mint"
-                        style={{ padding: '3px 8px', fontSize: '0.72rem' }}
-                        onClick={() =>
-                          dispatchGameAction({
-                            type: 'PICK_OBJECTIVE',
-                            playerId: me.id,
-                            objectiveId: cand.id,
-                          })
-                        }
-                      >
-                        Usa: {cand.title}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
 
-              {/* Box Modificatori & Risorse Personali */}
               <div className="panel-night" style={{ padding: '12px 14px' }}>
                 <div style={{ fontFamily: 'var(--font-title)', fontSize: '1.05rem', color: '#ffd166' }}>
                   🪙 I Tuoi Gettoni: {me.tokens} • Squadra in gioco: {me.played.length}/{gameState.config.teamSize}
                 </div>
                 <div style={{ fontSize: '0.78rem', marginTop: '4px', opacity: 0.9 }}>
-                  {me.modifiers.nextCardDiscount > 0 && (
-                    <span style={{ marginRight: '8px', color: '#8ce0bc' }}>
-                      ⚡ Sconto prossima carta: -{me.modifiers.nextCardDiscount} gettoni!
+                  {me.modifiers.forbidPlayNextTurn && (
+                    <span style={{ color: '#ea5444', marginRight: '8px' }}>
+                      📵 La Chiamata Persa: in questo turno non puoi scegliere Gioca!
                     </span>
                   )}
-                  {me.modifiers.comboTierOffsetFromBoss > 0 && (
-                    <span style={{ color: '#ea5444' }}>
-                      ⚠️ Bersagliato da &quot;Il Boss&quot;: combinazione costo +1!
+                  {me.modifiers.freeMarketSwapsCount > 0 && (
+                    <span style={{ color: '#8ce0bc', marginRight: '8px' }}>
+                      🏪 Hai {me.modifiers.freeMarketSwapsCount} scambio/i GRATIS col Mercato!
                     </span>
                   )}
                   {me.played.length === gameState.config.teamSize - 1 && (
@@ -1521,7 +1544,7 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* SEZIONE MANO COPERTA DEL GIOCATORE (SUL PROPRIO TELEFONO) */}
+            {/* SEZIONE MANO COPERTA DEL GIOCATORE */}
             <div className="panel-caramella" style={{ padding: '16px' }}>
               <h3 style={{ margin: '0 0 10px', fontFamily: 'var(--font-title)', fontSize: '1.2rem' }}>
                 🖐️ La Tua Mano Coperta ({me.hand.length} carte da giocare)
@@ -1540,21 +1563,16 @@ export const App: React.FC = () => {
                   }}
                 >
                   {me.hand.map((card) => {
-                    const effectiveCost = Math.max(
-                      0,
-                      card.cost - (me.modifiers.nextCardDiscount || 0)
-                    );
-                    const comboCheck = canDiceSatisfyCardCost(
-                      gameState.dice,
-                      card.cost,
-                      gameState.config,
-                      me.modifiers.comboTierOffsetFromBoss
-                    );
-                    const canPlayNow =
-                      isMyTurn &&
-                      !gameState.mainActionTaken &&
-                      me.tokens >= effectiveCost &&
-                      comboCheck.satisfied;
+                    const playCheck = canPlayCardRightNow(gameState, me, card);
+                    const isBlocked = Boolean(playCheck.blockedByOwner);
+                    const canPlayAny =
+                      isMyTurn && (playCheck.canPlayStandard || playCheck.canPlayNoComboAlt);
+
+                    const badge = isBlocked
+                      ? `🔒 BLOCCATA DA ${playCheck.blockedByOwner}`
+                      : canPlayAny
+                      ? '✓ GIOCABILE'
+                      : undefined;
 
                     return (
                       <div
@@ -1570,16 +1588,16 @@ export const App: React.FC = () => {
                         <CardComponent
                           card={card}
                           size="md"
-                          canPlayHighlight={canPlayNow}
-                          effectiveCost={effectiveCost}
-                          selectedBadge={canPlayNow ? '✓ GIOCABILE' : undefined}
+                          canPlayHighlight={canPlayAny}
+                          effectiveCost={playCheck.standardCost}
+                          selectedBadge={badge}
                           onClick={() => {
-                            if (!canPlayNow) return;
+                            if (!isMyTurn || !playCheck.canPlayStandard) return;
                             if (
                               gameState.config.enableCardEffects &&
                               card.effectModel.requiresTargetPlayer
                             ) {
-                              setPendingCardToPlay(card);
+                              setPendingCardToPlay({ card, useNoComboAlternateCost: false });
                             } else {
                               dispatchGameAction({
                                 type: 'PLAY_CARD',
@@ -1590,12 +1608,21 @@ export const App: React.FC = () => {
                           }}
                         />
                         <div style={{ fontSize: '0.72rem', fontWeight: 800, textAlign: 'center' }}>
-                          Richiede:{' '}
-                          {comboCheck.requiredCombos
-                            .map((c) => COMBO_LABELS_IT[c])
-                            .join(' / ')}
+                          {isBlocked ? (
+                            <span style={{ color: '#c93b2b' }}>
+                              Già in gioco (cambiala col Mercato o Sfratto!)
+                            </span>
+                          ) : (
+                            <>
+                              Richiede:{' '}
+                              {playCheck.requiredCombos
+                                .map((c) => COMBO_LABELS_IT[c])
+                                .join(' / ')}
+                            </>
+                          )}
                         </div>
-                        {canPlayNow && (
+
+                        {isMyTurn && playCheck.canPlayStandard && (
                           <button
                             className="btn-caramella btn-coral"
                             style={{ padding: '5px 12px', fontSize: '0.78rem' }}
@@ -1604,7 +1631,7 @@ export const App: React.FC = () => {
                                 gameState.config.enableCardEffects &&
                                 card.effectModel.requiresTargetPlayer
                               ) {
-                                setPendingCardToPlay(card);
+                                setPendingCardToPlay({ card, useNoComboAlternateCost: false });
                               } else {
                                 dispatchGameAction({
                                   type: 'PLAY_CARD',
@@ -1614,7 +1641,24 @@ export const App: React.FC = () => {
                               }
                             }}
                           >
-                            ▶ Gioca ({effectiveCost} 🪙)
+                            ▶ Gioca ({playCheck.standardCost} 🪙)
+                          </button>
+                        )}
+
+                        {isMyTurn && playCheck.canPlayNoComboAlt && (
+                          <button
+                            className="btn-caramella btn-gold"
+                            style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                            onClick={() =>
+                              dispatchGameAction({
+                                type: 'PLAY_CARD',
+                                playerId: me.id,
+                                cardId: card.id,
+                                useNoComboAlternateCost: true,
+                              })
+                            }
+                          >
+                            ▶ Gioca senza dadi ({playCheck.altCost} 🪙)
                           </button>
                         )}
                       </div>
@@ -1696,10 +1740,10 @@ export const App: React.FC = () => {
         >
           <div className="panel-caramella" style={{ maxWidth: '420px', width: '100%', padding: '18px' }}>
             <h3 style={{ margin: '0 0 8px', fontFamily: 'var(--font-title)' }}>
-              🎯 Scegli l&apos;Avversario Bersaglio per &quot;{pendingCardToPlay.name}&quot;
+              🎯 Scegli l&apos;Avversario Bersaglio per &quot;{pendingCardToPlay.card.name}&quot;
             </h3>
             <p style={{ margin: '0 0 12px', fontSize: '0.82rem', fontWeight: 700 }}>
-              {pendingCardToPlay.effectText}
+              {pendingCardToPlay.card.effectText}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {gameState.players
@@ -1712,8 +1756,9 @@ export const App: React.FC = () => {
                       dispatchGameAction({
                         type: 'PLAY_CARD',
                         playerId: me.id,
-                        cardId: pendingCardToPlay.id,
+                        cardId: pendingCardToPlay.card.id,
                         targetPlayerId: opp.id,
+                        useNoComboAlternateCost: pendingCardToPlay.useNoComboAlternateCost,
                       });
                       setPendingCardToPlay(null);
                     }}
@@ -1732,7 +1777,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* DRAWER MERCATO (Centro Tavolo) */}
+      {/* DRAWER MERCATO */}
       {showMarketDrawer && me && (
         <div
           style={{
@@ -1766,7 +1811,12 @@ export const App: React.FC = () => {
             </div>
             <p style={{ margin: '0 0 12px', fontSize: '0.82rem', fontWeight: 700 }}>
               Nel tuo turno puoi scambiare 1 tua carta non giocata con 1 del Mercato pagando{' '}
-              <strong>{gameState.config.marketSwapCost} gettone/i</strong>.
+              <strong>
+                {me.modifiers.freeMarketSwapsCount > 0
+                  ? '0 gettoni (SCAMBIO GRATIS ATTIVO!)'
+                  : `${gameState.config.marketSwapCost} gettone/i`}
+              </strong>
+              .
             </p>
 
             <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px' }}>
@@ -1813,8 +1863,9 @@ export const App: React.FC = () => {
                   disabled={
                     !selectedMarketCardId ||
                     !selectedHandSwapCardId ||
-                    gameState.hasUsedMarketThisTurn ||
-                    me.tokens < gameState.config.marketSwapCost
+                    (me.modifiers.freeMarketSwapsCount === 0 &&
+                      (gameState.hasUsedMarketThisTurn ||
+                        me.tokens < gameState.config.marketSwapCost))
                   }
                   onClick={() => {
                     dispatchGameAction({
@@ -1826,7 +1877,11 @@ export const App: React.FC = () => {
                     setShowMarketDrawer(false);
                   }}
                 >
-                  ✓ Conferma Scambio col Mercato (-{gameState.config.marketSwapCost} 🪙)
+                  ✓ Conferma Scambio col Mercato (
+                  {me.modifiers.freeMarketSwapsCount > 0
+                    ? 'GRATIS'
+                    : `-${gameState.config.marketSwapCost} 🪙`}
+                  )
                 </button>
               </div>
             )}
@@ -1994,7 +2049,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* MODALI GLOBALI: EDITOR CARTE, REGOLE CONFIGURABILI, CARTA RIFERIMENTO */}
       {showCardEditor && (
         <CardEditorModal
           catalog={catalog}
