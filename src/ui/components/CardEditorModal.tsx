@@ -7,6 +7,8 @@ import {
   EffectTemplateId,
   EffectTiming,
 } from '../../engine/types';
+import { estimateCardBudget } from '../../network/engineAdapter';
+import { compressAndResizeCardPhoto } from '../hooks/useLocalStorage';
 import { CardComponent } from './CardComponent';
 
 interface CardEditorModalProps {
@@ -74,16 +76,15 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
     );
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        updateActiveCard({ photoUrl: reader.result });
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressedDataUrl = await compressAndResizeCardPhoto(file, 420, 580);
+      updateActiveCard({ photoUrl: compressedDataUrl });
+    } catch {
+      alert('Impossibile elaborare la foto selezionata.');
+    }
   };
 
   const handleAddNewCard = () => {
@@ -100,11 +101,11 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
       rarity: 'Comune',
       cost: 3,
       effectType: 'Aiuto',
-      effectText: 'Quando entra: prendi 1 gettone.',
+      effectText: 'Quando entra: prendi 2 gettoni.',
       effectModel: {
         templateId: 'GAIN_TOKENS',
         timing: 'ON_ENTER',
-        value: 1,
+        value: 2,
       },
       avatarSeed: 'coffee',
     };
@@ -155,16 +156,15 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
     EFFECT_TEMPLATES.find((t) => t.id === activeCard?.effectModel?.templateId) ||
     EFFECT_TEMPLATES[0];
 
-  // Calcolo budget di riferimento secondo le linee guida GDD (costo - 1)
-  const gddBudgetRef = activeCard ? activeCard.cost - 1 : 1;
+  const budgetEstimate = activeCard ? estimateCardBudget(activeCard) : null;
 
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 100,
-        background: 'rgba(20, 15, 45, 0.88)',
+        zIndex: 180,
+        background: 'rgba(18, 13, 40, 0.9)',
         backdropFilter: 'blur(6px)',
         display: 'flex',
         alignItems: 'center',
@@ -176,8 +176,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
         className="panel-caramella"
         style={{
           width: '100%',
-          maxWidth: '960px',
-          maxHeight: '92dvh',
+          maxWidth: '1020px',
+          maxHeight: '94dvh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -188,12 +188,12 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
           style={{
             background: '#2b2350',
             color: '#fffdf6',
-            padding: '12px 16px',
+            padding: '14px 18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: '8px',
+            gap: '10px',
           }}
         >
           <div>
@@ -201,41 +201,51 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
               style={{
                 margin: 0,
                 fontFamily: 'var(--font-title)',
-                fontSize: '1.35rem',
+                fontSize: '1.5rem',
                 letterSpacing: '0.02em',
               }}
             >
               🎨 Editor Carte LAMENCARDS ({cards.length} carte — 4 Classi)
             </h2>
-            <div style={{ fontSize: '0.76rem', opacity: 0.85 }}>
-              Set di prova: 32 carte (8 per classe: Dormienti, Utenti, Festaioli, Scrocconi). Budget GDD effetto = Costo - 1.
+            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+              Personalizza foto, nomi, costi ed effetti. Le foto vengono ridimensionate e compresse automaticamente.
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
+              type="button"
               className="btn-caramella btn-mint"
-              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.9rem' }}
               onClick={handleExportJson}
             >
               ⬇ Esporta JSON
             </button>
             <label
               className="btn-caramella btn-cream"
-              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.9rem' }}
             >
               ⬆ Importa JSON
               <input type="file" accept=".json" onChange={handleImportJson} hidden />
             </label>
             <button
+              type="button"
+              className="btn-caramella btn-cream"
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.9rem' }}
+              onClick={onClose}
+            >
+              Annulla
+            </button>
+            <button
+              type="button"
               className="btn-caramella btn-coral"
-              style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+              style={{ padding: '8px 16px', minHeight: '42px', fontSize: '0.95rem' }}
               onClick={() => {
                 onSaveCatalog(cards);
                 onClose();
               }}
             >
-              ✓ Salva e Usa Set
+              ✓ Salva e Usa Mazzo
             </button>
           </div>
         </div>
@@ -245,15 +255,14 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '14px',
+            padding: '18px',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
-            gap: '16px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+            gap: '20px',
           }}
         >
-          {/* Colonna Sinistra: Filtro Classe + Lista Carte + Anteprima Live */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
-            {/* Filtro per le 4 Classi */}
+          {/* Colonna Sinistra: Filtro Classe + Lista Carte + Anteprima Live Grande */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', width: '100%' }}>
               {['ALL', 'Dormienti', 'Utenti', 'Festaioli', 'Scrocconi'].map((cls) => (
                 <button
@@ -261,17 +270,17 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   type="button"
                   onClick={() => setClassFilter(cls)}
                   style={{
-                    padding: '4px 10px',
+                    padding: '6px 12px',
                     borderRadius: '999px',
                     border: '2px solid #2b2350',
                     background: classFilter === cls ? '#2b2350' : '#ffffff',
                     color: classFilter === cls ? '#fffdf6' : '#2b2350',
                     fontWeight: 800,
-                    fontSize: '0.72rem',
+                    fontSize: '0.88rem',
                     cursor: 'pointer',
                   }}
                 >
-                  {cls === 'ALL' ? 'Tutte (32)' : cls}
+                  {cls === 'ALL' ? `Tutte (${cards.length})` : cls}
                 </button>
               ))}
             </div>
@@ -280,9 +289,9 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
               style={{
                 width: '100%',
                 display: 'flex',
-                gap: '6px',
+                gap: '8px',
                 overflowX: 'auto',
-                paddingBottom: '6px',
+                paddingBottom: '8px',
               }}
             >
               {cards.map((c, idx) => {
@@ -290,16 +299,17 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 return (
                   <button
                     key={c.id}
+                    type="button"
                     onClick={() => setSelectedIdx(idx)}
                     style={{
                       flexShrink: 0,
-                      padding: '6px 10px',
+                      padding: '8px 12px',
                       borderRadius: '12px',
                       border: '2px solid #2b2350',
                       background: idx === selectedIdx ? '#ea5444' : '#bff0da',
                       color: idx === selectedIdx ? '#ffffff' : '#2b2350',
                       fontWeight: 800,
-                      fontSize: '0.75rem',
+                      fontSize: '0.88rem',
                       cursor: 'pointer',
                     }}
                   >
@@ -308,16 +318,17 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 );
               })}
               <button
+                type="button"
                 onClick={handleAddNewCard}
                 style={{
                   flexShrink: 0,
-                  padding: '6px 12px',
+                  padding: '8px 14px',
                   borderRadius: '12px',
                   border: '2px dashed #2b2350',
                   background: '#ffd166',
                   color: '#2b2350',
                   fontWeight: 900,
-                  fontSize: '0.76rem',
+                  fontSize: '0.9rem',
                   cursor: 'pointer',
                 }}
               >
@@ -325,20 +336,21 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
               </button>
             </div>
 
-            {activeCard && <CardComponent card={activeCard} size="lg" />}
+            {activeCard && <CardComponent card={activeCard} size="lg" hideZoomButton />}
 
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
               <label
                 className="btn-caramella btn-mint"
-                style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                style={{ padding: '8px 14px', fontSize: '0.92rem' }}
               >
-                📷 Carica Foto Amico (Scontornata)
+                📷 Carica Foto Amico (Auto-Compressa)
                 <input type="file" accept="image/*" onChange={handlePhotoUpload} hidden />
               </label>
               {activeCard?.photoUrl && (
                 <button
+                  type="button"
                   className="btn-caramella btn-cream"
-                  style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                  style={{ padding: '8px 12px', fontSize: '0.88rem' }}
                   onClick={() => updateActiveCard({ photoUrl: undefined })}
                 >
                   Usa Avatar Cartoon
@@ -347,11 +359,11 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
             </div>
           </div>
 
-          {/* Colonna Destra: Campi Modificabili */}
+          {/* Colonna Destra: Campi Modificabili Grandi + Indicatore Budget */}
           {activeCard && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <label style={labelStyle}>
                   Titolo Carta
                   <input
                     type="text"
@@ -361,7 +373,7 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   />
                 </label>
 
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+                <label style={labelStyle}>
                   Nome Amico (Persona)
                   <input
                     type="text"
@@ -372,8 +384,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 </label>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <label style={labelStyle}>
                   Versione / Sottotitolo
                   <input
                     type="text"
@@ -383,24 +395,24 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   />
                 </label>
 
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+                <label style={labelStyle}>
                   Classe (4 Classi GDD)
                   <select
                     value={activeCard.cardClass}
                     onChange={(e) => updateActiveCard({ cardClass: e.target.value })}
                     style={inputStyle}
                   >
-                    <option value="Dormienti">Dormienti (Confermata)</option>
-                    <option value="Utenti">Utenti (Confermata)</option>
-                    <option value="Festaioli">Festaioli (Provvisorio)</option>
-                    <option value="Scrocconi">Scrocconi (Provvisorio)</option>
+                    <option value="Dormienti">😴 Dormienti (Confermata)</option>
+                    <option value="Utenti">🤪 Utenti (Confermata)</option>
+                    <option value="Festaioli">🎉 Festaioli (Provvisorio)</option>
+                    <option value="Scrocconi">🦊 Scrocconi (Provvisorio)</option>
                   </select>
                 </label>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
-                  Costo (Budget ≈ {gddBudgetRef} 🪙)
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <label style={labelStyle}>
+                  Costo (2–6 🪙)
                   <select
                     value={activeCard.cost}
                     onChange={(e) =>
@@ -416,7 +428,7 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   </select>
                 </label>
 
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+                <label style={labelStyle}>
                   Tipo Effetto
                   <select
                     value={activeCard.effectType}
@@ -431,8 +443,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   </select>
                 </label>
 
-                <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
-                  Rarità (PROMO = Olo)
+                <label style={labelStyle}>
+                  Rarità
                   <select
                     value={activeCard.rarity}
                     onChange={(e) =>
@@ -442,13 +454,35 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   >
                     <option value="Comune">Comune</option>
                     <option value="Rara">Rara</option>
-                    <option value="PROMO">✨ PROMO (Olografica)</option>
+                    <option value="PROMO">✨ PROMO (Olo)</option>
                   </select>
                 </label>
               </div>
 
-              <label style={{ fontSize: '0.78rem', fontWeight: 800 }}>
-                Testo dell&apos;Effetto (mostrato sulla carta)
+              {/* Indicatore Matematico Budget GDD (Costo - 1) */}
+              {budgetEstimate && (
+                <div
+                  style={{
+                    background:
+                      budgetEstimate.status === 'BILANCIATA'
+                        ? '#dfffe9'
+                        : budgetEstimate.status === 'SOPRA_BUDGET'
+                        ? '#ffe8e5'
+                        : '#fff8db',
+                    border: '2px solid #2b2350',
+                    borderRadius: '14px',
+                    padding: '10px 12px',
+                    fontSize: '0.92rem',
+                    fontWeight: 800,
+                  }}
+                >
+                  ⚖️ <strong>Bilanciamento GDD (Budget = Costo - 1 = {budgetEstimate.targetBudget} 🪙):</strong>{' '}
+                  {budgetEstimate.note}
+                </div>
+              )}
+
+              <label style={labelStyle}>
+                Testo dell&apos;Effetto (mostrato grande sulla carta)
                 <textarea
                   rows={2}
                   value={activeCard.effectText}
@@ -462,11 +496,11 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 style={{
                   background: '#eefbf5',
                   border: '2px solid #2b2350',
-                  borderRadius: '14px',
-                  padding: '10px',
+                  borderRadius: '16px',
+                  padding: '12px',
                 }}
               >
-                <div style={{ fontSize: '0.78rem', fontWeight: 900, marginBottom: '6px' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 900, marginBottom: '6px' }}>
                   ⚙️ Modello Effetto Eseguibile (Calibrato sul GDD)
                 </div>
                 <select
@@ -498,8 +532,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                   <label
                     style={{
                       display: 'block',
-                      marginTop: '8px',
-                      fontSize: '0.76rem',
+                      marginTop: '10px',
+                      fontSize: '0.92rem',
                       fontWeight: 800,
                     }}
                   >
@@ -527,13 +561,15 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  marginTop: '6px',
-                  gap: '8px',
+                  marginTop: '4px',
+                  gap: '10px',
+                  flexWrap: 'wrap',
                 }}
               >
                 <button
+                  type="button"
                   className="btn-caramella btn-cream"
-                  style={{ fontSize: '0.76rem', padding: '6px 10px' }}
+                  style={{ fontSize: '0.9rem', padding: '8px 14px' }}
                   onClick={() => {
                     if (confirm('Ripristinare le 32 carte ufficiali del GDD?')) {
                       setCards([...DEFAULT_CARDS]);
@@ -545,8 +581,9 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
                 </button>
 
                 <button
+                  type="button"
                   className="btn-caramella btn-cream"
-                  style={{ fontSize: '0.76rem', padding: '6px 10px', color: '#c93b2b' }}
+                  style={{ fontSize: '0.9rem', padding: '8px 14px', color: '#c93b2b' }}
                   onClick={handleDeleteCard}
                 >
                   🗑 Elimina Carta
@@ -560,14 +597,20 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
   );
 };
 
+const labelStyle: React.CSSProperties = {
+  fontSize: '0.92rem',
+  fontWeight: 800,
+  display: 'block',
+};
+
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  marginTop: '3px',
-  padding: '7px 10px',
-  borderRadius: '10px',
+  marginTop: '4px',
+  padding: '9px 12px',
+  borderRadius: '12px',
   border: '2px solid #2b2350',
   background: '#ffffff',
   color: '#2b2350',
-  fontWeight: 700,
-  fontSize: '0.84rem',
+  fontWeight: 800,
+  fontSize: '0.96rem',
 };

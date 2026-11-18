@@ -23,13 +23,23 @@ export function evaluateObjective(
 
   switch (objective.ruleType) {
     case 'MIN_DISTINCT_CLASSES': {
-      const distinctClasses = new Set(playedCards.map((c) => c.cardClass));
-      const count = distinctClasses.size;
+      const seen = new Set<string>();
+      const duplicates: string[] = [];
+      for (const c of playedCards) {
+        if (seen.has(c.cardClass)) {
+          duplicates.push(c.id);
+        } else {
+          seen.add(c.cardClass);
+        }
+      }
+      const count = seen.size;
       const ruleMet = count >= objective.targetNumber;
+      const remainingSlots = Math.max(0, requiredTeamSize - playedCards.length);
+      const impossibleWithoutReturn = count + remainingSlots < objective.targetNumber;
       return {
         satisfied: hasFullTeam && ruleMet,
         progressText: `Classi diverse: ${count}/${objective.targetNumber}`,
-        mismatchedCardIds: [],
+        mismatchedCardIds: impossibleWithoutReturn ? duplicates : [],
       };
     }
 
@@ -42,22 +52,40 @@ export function evaluateObjective(
         ? counts[objective.targetClass] || 0
         : Math.max(0, ...Object.values(counts));
       const ruleMet = currentCount >= objective.targetNumber;
+      const remainingSlots = Math.max(0, requiredTeamSize - playedCards.length);
+      const impossibleWithoutReturn = currentCount + remainingSlots < objective.targetNumber;
+      const nonMatchingIds = impossibleWithoutReturn
+        ? playedCards
+            .filter((c) =>
+              objective.targetClass ? c.cardClass !== objective.targetClass : true
+            )
+            .map((c) => c.id)
+        : [];
       return {
         satisfied: hasFullTeam && ruleMet,
         progressText: objective.targetClass
           ? `${objective.targetClass}: ${currentCount}/${objective.targetNumber}`
           : `Stessa classe max: ${currentCount}/${objective.targetNumber}`,
-        mismatchedCardIds: [],
+        mismatchedCardIds: nonMatchingIds,
       };
     }
 
     case 'MIN_TOTAL_COST': {
       const totalCost = playedCards.reduce((sum, c) => sum + c.cost, 0);
       const ruleMet = totalCost >= objective.targetNumber;
+      const remainingSlots = Math.max(0, requiredTeamSize - playedCards.length);
+      const maxPossibleTotal = totalCost + remainingSlots * 6;
+      const lowestCards =
+        maxPossibleTotal < objective.targetNumber
+          ? [...playedCards]
+              .sort((a, b) => a.cost - b.cost)
+              .slice(0, 1)
+              .map((c) => c.id)
+          : [];
       return {
         satisfied: hasFullTeam && ruleMet,
         progressText: `Costo totale in gioco: ${totalCost}/${objective.targetNumber}`,
-        mismatchedCardIds: [],
+        mismatchedCardIds: lowestCards,
       };
     }
 
@@ -74,14 +102,24 @@ export function evaluateObjective(
     }
 
     case 'ALL_EFFECT_TYPES': {
-      const types = new Set(playedCards.map((c) => c.effectType));
+      const seenTypes = new Set<string>();
+      const duplicateTypeIds: string[] = [];
+      for (const c of playedCards) {
+        if (seenTypes.has(c.effectType)) {
+          duplicateTypeIds.push(c.id);
+        } else {
+          seenTypes.add(c.effectType);
+        }
+      }
       const required: Array<'Aiuto' | 'Ostacolo' | 'Caos'> = ['Aiuto', 'Ostacolo', 'Caos'];
-      const count = required.filter((t) => types.has(t)).length;
+      const count = required.filter((t) => seenTypes.has(t)).length;
       const ruleMet = count >= 3;
+      const remainingSlots = Math.max(0, requiredTeamSize - playedCards.length);
+      const impossibleWithoutReturn = count + remainingSlots < 3;
       return {
         satisfied: hasFullTeam && ruleMet,
-        progressText: `Tipi effetto: ${count}/3 (${Array.from(types).join(', ') || 'nessuno'})`,
-        mismatchedCardIds: [],
+        progressText: `Tipi effetto: ${count}/3 (${Array.from(seenTypes).join(', ') || 'nessuno'})`,
+        mismatchedCardIds: impossibleWithoutReturn ? duplicateTypeIds : [],
       };
     }
 

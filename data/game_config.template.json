@@ -1,5 +1,5 @@
 {
-  "_comment": "Configurazione generata dal GDD ufficiale di LAMENCARDS (v2 - 11 pagine). Tutto ciò che nel GDD è 'in forse' o 'da definire' è esposto come parametro configurabile.",
+  "_comment": "Configurazione ufficiale dal GDD di LAMENCARDS (v2 - 11 pagine). Tutto ciò che nel GDD è 'in forse' o 'da definire' è esposto come opzione configurabile in GameConfig, con default identico alla proposta del GDD.",
   "card_specs": {
     "width_mm": 63,
     "height_mm": 88,
@@ -34,24 +34,82 @@
     "played_card_blocks_identical_copies_for_others": true
   },
   "rules_configurable": {
-    "starting_tokens": 3,
-    "max_rolls_per_turn": 3,
-    "paid_extra_roll_enabled": false,
-    "paid_extra_roll_cost": 1,
-    "cash_in_bonus_faces": [5, 6],
-    "unique_person_per_team": true,
-    "block_all_versions_of_same_person_in_play": false,
-    "objective_visibility": "SECRET",
-    "market_swap_cost_tokens": 1,
-    "market_swap_timing": "FREE_ACTION_IN_TURN",
-    "player_trade_requires_card_swap": true,
-    "on_objective_mismatch_with_played_cards": "ALLOW_RETURN_TO_HAND",
-    "cost_combinations_table": {
-      "2": ["ONE_PAIR"],
-      "3": ["TWO_PAIR"],
-      "4": ["STRAIGHT_4"],
-      "5": ["FULL_HOUSE"],
-      "6": ["FOUR_OF_A_KIND"]
+    "startingTokens": {
+      "default": 3,
+      "description": "Gettoni iniziali assegnati a ogni giocatore all'inizio della partita (proposta GDD: 3)."
+    },
+    "maxRollsPerTurn": {
+      "default": 3,
+      "description": "Numero massimo di tiri di dadi per turno (1° tiro + 2 ritiri = 3)."
+    },
+    "extraPaidRoll": {
+      "default": false,
+      "alias": "paidExtraRollEnabled",
+      "paidExtraRollCost": 1,
+      "description": "In forse nel GDD: permette di pagare 1 gettone per un 4° tiro dei dadi (default escluso)."
+    },
+    "cashInMode": {
+      "default": "FIVE_AND_SIX",
+      "options": ["FIVE_AND_SIX", "SIX_ONLY"],
+      "alias": "cashInHighFaces",
+      "description": "Modalità Incassa: 1 gettone base + 1 per ogni 5 o 6 (FIVE_AND_SIX, media ~4.5) oppure +1 solo per ogni 6 (SIX_ONLY, se le partite risultano troppo veloci)."
+    },
+    "marketSwapPrice": {
+      "default": 1,
+      "alias": "marketSwapCost",
+      "description": "Prezzo in gettoni per scambiare una propria carta non giocata con una del Mercato."
+    },
+    "marketSwapTiming": {
+      "default": "ANYTIME_IN_TURN",
+      "options": ["BEFORE_ROLL", "AFTER_ACTION", "ANYTIME_IN_TURN", "FREE_IN_TURN", "REPLACES_MAIN_ACTION"],
+      "description": "Momento del turno in cui è possibile effettuare lo scambio col Mercato."
+    },
+    "marketSwapConsumesAction": {
+      "default": false,
+      "description": "Se true, scambiare col Mercato conta come azione principale del turno (al posto di Gioca o Incassa)."
+    },
+    "tradeRequiresCardBack": {
+      "default": true,
+      "alias": "tradeRequiresCardSwap",
+      "description": "Da confermare nel GDD: quando un giocatore accetta di vendere una carta non giocata, riceve in cambio una carta non giocata dal compratore così la squadra resta di 4 carte."
+    },
+    "blockScope": {
+      "default": "SAME_CARD",
+      "options": ["SAME_CARD", "SAME_PERSON"],
+      "alias": "blockAllVersionsOfSamePersonInPlay",
+      "description": "Ambito del blocco personaggi doppi in campo: SAME_CARD blocca solo la stessa identica carta; SAME_PERSON blocca anche versioni diverse della stessa persona."
+    },
+    "allowMultipleVersionsSamePerson": {
+      "default": true,
+      "alias": "!uniquePersonPerTeam",
+      "description": "Se true, nella propria squadra possono entrare versioni diverse della stessa persona (ma mai due copie della stessa identica carta)."
+    },
+    "objectiveHidden": {
+      "default": true,
+      "alias": "objectiveVisibility === 'SECRET'",
+      "description": "Se true, l'Obiettivo scelto resta coperto (visibile agli avversari solo con 'Il Ficcanaso' o a fine partita)."
+    },
+    "objectiveChangePolicy": {
+      "default": "ALLOW_RETURN_TO_HAND",
+      "options": ["ALLOW_RETURN_TO_HAND", "NONE"],
+      "alias": "onObjectiveMismatch",
+      "description": "Gestione di carte già giocate che risultano incompatibili con l'Obiettivo."
+    },
+    "richestTiePolicy": {
+      "default": "FIRST_CLOCKWISE",
+      "options": ["FIRST_CLOCKWISE", "CHOOSE"],
+      "description": "Gestione dei pareggi per 'Il Mantenuto' (chi ha più gettoni): primo in senso orario oppure scelta tramite pendingChoice."
+    },
+    "comboTable": {
+      "alias": "costCombinationsTable",
+      "description": "Tabella Costo -> Combinazione di dadi richiesta.",
+      "default": {
+        "2": ["ONE_PAIR"],
+        "3": ["TWO_PAIR"],
+        "4": ["STRAIGHT_4"],
+        "5": ["FULL_HOUSE"],
+        "6": ["FOUR_OF_A_KIND"]
+      }
     }
   }
 }

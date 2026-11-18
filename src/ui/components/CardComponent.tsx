@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { CardData } from '../../engine/types';
+import { openCardZoom } from './CardZoomModal';
 
 interface CardComponentProps {
   card: CardData;
@@ -9,6 +10,7 @@ interface CardComponentProps {
   canPlayHighlight?: boolean;
   effectiveCost?: number;
   onClick?: () => void;
+  hideZoomButton?: boolean;
 }
 
 const EFFECT_TYPE_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
@@ -32,8 +34,8 @@ function renderFriendStickerIllustration(card: CardData) {
         alt={card.name}
         className="sticker-cutout"
         style={{
-          width: '86%',
-          height: '88%',
+          width: '88%',
+          height: '92%',
           objectFit: 'contain',
           display: 'block',
           margin: '0 auto',
@@ -160,11 +162,45 @@ export const CardComponent: React.FC<CardComponentProps> = ({
   canPlayHighlight = false,
   effectiveCost,
   onClick,
+  hideZoomButton = false,
 }) => {
+  // Dimensioni carte molto più grandi e leggibili (Step 1)
   const widthMap = {
-    sm: '134px',
-    md: '188px',
-    lg: '246px',
+    sm: '182px',
+    md: '238px',
+    lg: '312px',
+  };
+
+  const longPressTimerRef = useRef<number | null>(null);
+
+  const triggerZoom = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (faceDown) return;
+    openCardZoom({
+      card,
+      effectiveCost,
+      badge: selectedBadge,
+      canPlay: canPlayHighlight,
+    });
+  };
+
+  const handlePointerDown = () => {
+    if (faceDown || hideZoomButton) return;
+    longPressTimerRef.current = window.setTimeout(() => {
+      openCardZoom({
+        card,
+        effectiveCost,
+        badge: selectedBadge,
+        canPlay: canPlayHighlight,
+      });
+    }, 480);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
   };
 
   if (faceDown) {
@@ -176,13 +212,13 @@ export const CardComponent: React.FC<CardComponentProps> = ({
       >
         <div className="lamen-card-back-inner">
           <div className="lamen-medallion">
-            <span style={{ fontSize: size === 'sm' ? '1.4rem' : '2rem', lineHeight: 1 }}>🃏</span>
+            <span style={{ fontSize: size === 'sm' ? '1.8rem' : '2.3rem', lineHeight: 1 }}>🃏</span>
             <span
               style={{
                 fontFamily: 'var(--font-bubbles)',
-                fontSize: size === 'sm' ? '0.55rem' : '0.72rem',
+                fontSize: size === 'sm' ? '0.78rem' : '0.92rem',
                 color: '#2b2350',
-                marginTop: '3px',
+                marginTop: '4px',
                 lineHeight: 1.05,
               }}
             >
@@ -209,29 +245,42 @@ export const CardComponent: React.FC<CardComponentProps> = ({
         width: widthMap[size],
         cursor: onClick ? 'pointer' : 'default',
         outline: canPlayHighlight
-          ? '4px solid #22c55e'
+          ? '5px solid #22c55e'
           : selectedBadge
           ? '4px solid #ffd166'
           : 'none',
       }}
       onClick={onClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={clearLongPress}
+      onPointerLeave={clearLongPress}
+      onPointerCancel={clearLongPress}
     >
       {selectedBadge && (
         <div
           style={{
             position: 'absolute',
             top: '6px',
-            right: '6px',
-            zIndex: 10,
-            background: selectedBadge.includes('BLOCCATA') ? '#ea5444' : '#ffd166',
-            color: selectedBadge.includes('BLOCCATA') ? '#ffffff' : '#2b2350',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 12,
+            background: selectedBadge.includes('BLOCCATA')
+              ? '#ea5444'
+              : selectedBadge.includes('GIOCABILE')
+              ? '#22c55e'
+              : '#ffd166',
+            color:
+              selectedBadge.includes('BLOCCATA') || selectedBadge.includes('GIOCABILE')
+                ? '#ffffff'
+                : '#2b2350',
             border: '2px solid #2b2350',
             borderRadius: '999px',
-            padding: '2px 8px',
+            padding: '2px 10px',
             fontFamily: 'var(--font-effect)',
-            fontSize: '0.64rem',
+            fontSize: size === 'sm' ? '0.72rem' : '0.8rem',
             fontWeight: 800,
             boxShadow: '0 2px 0 #2b2350',
+            whiteSpace: 'nowrap',
           }}
         >
           {selectedBadge}
@@ -239,21 +288,22 @@ export const CardComponent: React.FC<CardComponentProps> = ({
       )}
 
       <div className="lamen-card-inner">
-        {/* TOP BAR: Costo in Gettoni + Classe */}
+        {/* TOP BAR: Costo in Gettoni + Classe + Lente Zoom */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: size === 'sm' ? '4px 5px 0' : '6px 7px 0',
+            padding: size === 'sm' ? '5px 6px 0' : '7px 8px 0',
             zIndex: 2,
+            gap: '4px',
           }}
         >
           <div
             title={`Costo: ${displayedCost} gettoni`}
             style={{
-              width: size === 'sm' ? '26px' : '34px',
-              height: size === 'sm' ? '26px' : '34px',
+              width: size === 'sm' ? '34px' : size === 'lg' ? '44px' : '38px',
+              height: size === 'sm' ? '34px' : size === 'lg' ? '44px' : '38px',
               borderRadius: '999px',
               background: hasDiscount ? '#22c55e' : '#ffd166',
               color: '#2b2350',
@@ -263,35 +313,64 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               fontFamily: 'var(--font-title)',
-              fontSize: size === 'sm' ? '0.95rem' : '1.2rem',
+              fontSize: size === 'sm' ? '1.15rem' : size === 'lg' ? '1.45rem' : '1.3rem',
               fontWeight: 900,
+              flexShrink: 0,
             }}
           >
             {displayedCost}
           </div>
 
-          <span
-            style={{
-              background: classStyle.bg,
-              color: classStyle.text,
-              border: '2px solid #2b2350',
-              borderRadius: '999px',
-              padding: size === 'sm' ? '1px 6px' : '2px 9px',
-              fontFamily: 'var(--font-effect)',
-              fontSize: size === 'sm' ? '0.56rem' : '0.66rem',
-              fontWeight: 700,
-              boxShadow: '0 2px 0 #2b2350',
-            }}
-          >
-            {card.cardClass}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span
+              style={{
+                background: classStyle.bg,
+                color: classStyle.text,
+                border: '2px solid #2b2350',
+                borderRadius: '999px',
+                padding: size === 'sm' ? '2px 8px' : '3px 10px',
+                fontFamily: 'var(--font-effect)',
+                fontSize: size === 'sm' ? '0.74rem' : size === 'lg' ? '0.9rem' : '0.82rem',
+                fontWeight: 800,
+                boxShadow: '0 2px 0 #2b2350',
+              }}
+            >
+              {card.cardClass}
+            </span>
+
+            {!hideZoomButton && (
+              <button
+                type="button"
+                title="Ingrandisci e leggi la carta"
+                onClick={triggerZoom}
+                style={{
+                  width: size === 'sm' ? '28px' : '32px',
+                  height: size === 'sm' ? '28px' : '32px',
+                  borderRadius: '999px',
+                  border: '2px solid #2b2350',
+                  background: '#fffdf6',
+                  color: '#2b2350',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: size === 'sm' ? '0.8rem' : '0.9rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 0 #2b2350',
+                  padding: 0,
+                  flexShrink: 0,
+                }}
+              >
+                🔍
+              </button>
+            )}
+          </div>
         </div>
 
         {/* AREA FOTO AMICO SCONTORNATA */}
         <div
           style={{
             flex: 1,
-            minHeight: 0,
+            minHeight: size === 'sm' ? '64px' : size === 'lg' ? '125px' : '88px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -306,14 +385,14 @@ export const CardComponent: React.FC<CardComponentProps> = ({
         <div
           className="lamen-name-banner"
           style={{
-            padding: size === 'sm' ? '2px 5px' : '4px 7px',
+            padding: size === 'sm' ? '4px 6px' : '5px 8px',
             textAlign: 'center',
           }}
         >
           <div
             style={{
-              fontSize: size === 'sm' ? '0.7rem' : size === 'lg' ? '1rem' : '0.84rem',
-              lineHeight: 1.1,
+              fontSize: size === 'sm' ? '0.86rem' : size === 'lg' ? '1.15rem' : '0.98rem',
+              lineHeight: 1.12,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -325,9 +404,9 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             <div
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: size === 'sm' ? '0.5rem' : '0.6rem',
-                fontWeight: 700,
-                opacity: 0.95,
+                fontSize: size === 'sm' ? '0.68rem' : size === 'lg' ? '0.82rem' : '0.74rem',
+                fontWeight: 800,
+                opacity: 0.96,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -338,17 +417,17 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           )}
         </div>
 
-        {/* BOX EFFETTO */}
+        {/* BOX EFFETTO GRANDE E SEMPRE LEGGIBILE (Nessun troncamento illeggibile) */}
         <div
           style={{
             background: '#fffdf6',
             color: '#2b2350',
-            padding: size === 'sm' ? '4px 5px' : '6px 7px',
-            minHeight: size === 'sm' ? '46px' : size === 'lg' ? '76px' : '60px',
+            padding: size === 'sm' ? '6px 7px' : size === 'lg' ? '9px 11px' : '7px 9px',
+            minHeight: size === 'sm' ? '74px' : size === 'lg' ? '114px' : '92px',
             display: 'flex',
             flexDirection: 'column',
-            justifyContent: 'space-between',
-            gap: '2px',
+            justifyContent: 'flex-start',
+            gap: '4px',
           }}
         >
           <div
@@ -364,9 +443,9 @@ export const CardComponent: React.FC<CardComponentProps> = ({
                 background: effectStyle.bg,
                 color: effectStyle.text,
                 borderRadius: '6px',
-                padding: '1px 5px',
+                padding: '1px 6px',
                 fontFamily: 'var(--font-effect)',
-                fontSize: size === 'sm' ? '0.5rem' : '0.6rem',
+                fontSize: size === 'sm' ? '0.68rem' : size === 'lg' ? '0.8rem' : '0.74rem',
                 fontWeight: 700,
                 border: '1.5px solid #2b2350',
               }}
@@ -376,25 +455,23 @@ export const CardComponent: React.FC<CardComponentProps> = ({
 
             <span
               style={{
-                fontSize: size === 'sm' ? '0.48rem' : '0.56rem',
+                fontSize: size === 'sm' ? '0.66rem' : '0.72rem',
                 fontWeight: 800,
-                opacity: 0.75,
+                opacity: 0.8,
               }}
             >
-              #{card.setNumber} • {card.rarity === 'PROMO' ? '✨ PROMO' : card.rarity[0]}
+              #{card.setNumber} {card.rarity === 'PROMO' ? '✨ PROMO' : ''}
             </span>
           </div>
 
           <div
             style={{
               fontFamily: 'var(--font-body)',
-              fontSize: size === 'sm' ? '0.51rem' : size === 'lg' ? '0.72rem' : '0.61rem',
-              fontWeight: 700,
-              lineHeight: 1.18,
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
+              fontSize: size === 'sm' ? '0.82rem' : size === 'lg' ? '0.98rem' : '0.88rem',
+              fontWeight: 800,
+              lineHeight: 1.24,
+              color: '#2b2350',
+              wordBreak: 'break-word',
             }}
           >
             {card.effectText}

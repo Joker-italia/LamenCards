@@ -1,0 +1,10 @@
+{
+  "name": "LAMENCARDS — Il Gioco di Carte degli Amici",
+  "short_name": "LAMENCARDS",
+  "description": "Apri 2 bustine, tira i dadi, ruba gettoni agli Scrocconi e schiera la tua squadra di 4 amici!",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#2b2350",
+  "theme_color": "#2b2350",
+  "orientation": "portrait-primary"
+}

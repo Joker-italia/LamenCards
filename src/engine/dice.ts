@@ -1,3 +1,4 @@
+import { DEFAULT_RNG_SEED, mulberry32Step, RngStateHolder, rollDieFromRng } from './rng';
 import { DiceComboId, GameConfig } from './types';
 
 export const COMBO_LABELS_IT: Record<DiceComboId, string> = {
@@ -11,8 +12,23 @@ export const COMBO_LABELS_IT: Record<DiceComboId, string> = {
   FIVE_OF_A_KIND: '5 Dadi Uguali',
 };
 
-export function rollSingleDie(): number {
-  return Math.floor(Math.random() * 6) + 1;
+let fallbackDeterministicState = DEFAULT_RNG_SEED;
+
+/**
+ * Tira un singolo dado a 6 facce (1..6) in modo deterministico.
+ * Accetta opzionalmente un contenitore `RngStateHolder` (es. `GameState`) o una funzione RNG `() => number`.
+ */
+export function rollSingleDie(rng?: RngStateHolder | (() => number)): number {
+  if (typeof rng === 'function') {
+    const val = Math.floor(rng() * 6) + 1;
+    return Math.min(6, Math.max(1, val));
+  }
+  if (rng && typeof rng === 'object' && typeof rng.rngState === 'number') {
+    return rollDieFromRng(rng);
+  }
+  const step = mulberry32Step(fallbackDeterministicState);
+  fallbackDeterministicState = step.nextState;
+  return Math.floor(step.value * 6) + 1;
 }
 
 export function flipDieOppositeFace(val: number): number {
@@ -22,6 +38,14 @@ export function flipDieOppositeFace(val: number): number {
 
 /**
  * Restituisce tutte le combinazioni soddisfatte dai dadi correnti (4 o 5 dadi).
+ * - ONE_PAIR: almeno 2 dadi uguali
+ * - TWO_PAIR: due coppie diverse (es. 2-2-5-5) oppure 4+ dadi uguali (es. 4-4-4-4)
+ * - THREE_OF_A_KIND: almeno 3 dadi uguali
+ * - STRAIGHT_4: almeno 4 valori consecutivi distinti (1-2-3-4, 2-3-4-5, 3-4-5-6)
+ * - FULL_HOUSE: un tris + una coppia (es. 3-3-3-2-2) oppure 5 dadi uguali
+ * - FOUR_OF_A_KIND: almeno 4 dadi uguali (Poker)
+ * - STRAIGHT_5: 5 valori consecutivi distinti (1-2-3-4-5 o 2-3-4-5-6)
+ * - FIVE_OF_A_KIND: 5 dadi uguali
  */
 export function evaluateDiceCombos(dice: number[]): DiceComboId[] {
   if (!dice || dice.length === 0) return [];
@@ -44,8 +68,8 @@ export function evaluateDiceCombos(dice: number[]): DiceComboId[] {
     (a, b) => a - b
   );
 
-  let maxConsecutive = 1;
-  let currentConsecutive = 1;
+  let maxConsecutive = uniqueSorted.length > 0 ? 1 : 0;
+  let currentConsecutive = uniqueSorted.length > 0 ? 1 : 0;
   for (let i = 1; i < uniqueSorted.length; i++) {
     if (uniqueSorted[i] === uniqueSorted[i - 1] + 1) {
       currentConsecutive++;
@@ -78,12 +102,12 @@ export function evaluateDiceCombos(dice: number[]): DiceComboId[] {
 export function calculateCashInTokens(
   dice: number[],
   bonusTokens = 0,
-  highFacesMode: 'FIVE_AND_SIX' | 'ONLY_SIX' = 'FIVE_AND_SIX'
+  highFacesMode: 'FIVE_AND_SIX' | 'ONLY_SIX' | 'SIX_ONLY' = 'FIVE_AND_SIX'
 ): number {
-  const highDiceCount =
-    highFacesMode === 'ONLY_SIX'
-      ? dice.filter((d) => d === 6).length
-      : dice.filter((d) => d === 5 || d === 6).length;
+  const isSixOnly = highFacesMode === 'ONLY_SIX' || highFacesMode === 'SIX_ONLY';
+  const highDiceCount = isSixOnly
+    ? dice.filter((d) => d === 6).length
+    : dice.filter((d) => d === 5 || d === 6).length;
   return 1 + highDiceCount + bonusTokens;
 }
 
@@ -111,7 +135,8 @@ export function canDiceSatisfyCardCost(
     effectiveTier = invertedMap[effectiveTier] || effectiveTier;
   }
 
-  const requiredCombos = config.costCombinationsTable[effectiveTier] || ['ONE_PAIR'];
+  const table = config.comboTable || config.costCombinationsTable;
+  const requiredCombos = table?.[effectiveTier] || ['ONE_PAIR'];
   const achieved = evaluateDiceCombos(dice);
   const satisfied = requiredCombos.some((req) => achieved.includes(req));
   return {
