@@ -38,8 +38,7 @@ export const ReferenceCardModal: React.FC<ReferenceCardModalProps> = ({
         position: 'fixed',
         inset: 0,
         zIndex: 185,
-        background: 'rgba(18, 13, 40, 0.88)',
-        backdropFilter: 'blur(6px)',
+        background: 'rgba(18, 13, 40, 0.86)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -51,7 +50,7 @@ export const ReferenceCardModal: React.FC<ReferenceCardModalProps> = ({
         className="panel-caramella"
         style={{
           width: '100%',
-          maxWidth: '540px',
+          maxWidth: '580px',
           maxHeight: '92dvh',
           overflowY: 'auto',
           padding: '22px',
@@ -66,8 +65,8 @@ export const ReferenceCardModal: React.FC<ReferenceCardModalProps> = ({
             marginBottom: '14px',
           }}
         >
-          <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.55rem' }}>
-            📖 Carta di Riferimento &amp; Combinazioni
+          <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.6rem' }}>
+            📖 Guida Rapida al Gioco
           </h3>
           <button
             type="button"
@@ -77,6 +76,53 @@ export const ReferenceCardModal: React.FC<ReferenceCardModalProps> = ({
           >
             ✕ Chiudi
           </button>
+        </div>
+
+        {/* Legenda Simboli sulle Carte */}
+        <div
+          style={{
+            background: '#fffdf6',
+            border: '3px solid #2b2350',
+            borderRadius: '18px',
+            padding: '14px',
+            marginBottom: '14px',
+          }}
+        >
+          <div style={{ fontWeight: 900, fontSize: '1.04rem', marginBottom: '10px' }}>
+            🃏 Legenda Simboli sulle Carte
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '8px',
+              fontSize: '0.94rem',
+              fontWeight: 800,
+            }}
+          >
+            <div>😴 <strong>Dormienti</strong> — Lenti, protezione, stop</div>
+            <div>😵‍💫 <strong>Utenti</strong> — Dadi, scommesse, imprevisti</div>
+            <div>🥳 <strong>Festaioli</strong> — Gettoni a tutti, Mercato</div>
+            <div>🦝 <strong>Scrocconi</strong> — Rubano gettoni e carte</div>
+          </div>
+
+          <div
+            style={{
+              borderTop: '2px dashed rgba(43,35,80,0.2)',
+              marginTop: '10px',
+              paddingTop: '10px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '0.92rem',
+              fontWeight: 800,
+            }}
+          >
+            <span>💡 <strong>Aiuto</strong> (ti potenzia)</span>
+            <span>🎯 <strong>Ostacolo</strong> (colpisce 1 rivale)</span>
+            <span>🌀 <strong>Caos</strong> (tocca tutti)</span>
+          </div>
         </div>
 
         {(invertComboTableActive || sponsorDiscount > 0) && (

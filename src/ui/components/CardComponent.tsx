@@ -5,7 +5,7 @@ import { openCardZoom } from './CardZoomModal';
 interface CardComponentProps {
   card: CardData;
   faceDown?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   selectedBadge?: string;
   canPlayHighlight?: boolean;
   effectiveCost?: number;
@@ -14,17 +14,54 @@ interface CardComponentProps {
 }
 
 const EFFECT_TYPE_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
-  Aiuto: { bg: '#22c55e', text: '#ffffff', icon: '⚡' },
+  Aiuto: { bg: '#22c55e', text: '#ffffff', icon: '💡' },
   Ostacolo: { bg: '#f97316', text: '#ffffff', icon: '🎯' },
   Caos: { bg: '#8b5cf6', text: '#ffffff', icon: '🌀' },
 };
 
-const CLASS_COLORS: Record<string, { bg: string; text: string }> = {
-  Dormienti: { bg: '#60a5fa', text: '#ffffff' },
-  Utenti: { bg: '#fbbf24', text: '#2b2350' },
-  Festaioli: { bg: '#ec4899', text: '#ffffff' },
-  Scrocconi: { bg: '#a855f7', text: '#ffffff' },
+const CLASS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
+  Dormienti: { bg: '#60a5fa', text: '#ffffff', icon: '😴' },
+  Utenti: { bg: '#fbbf24', text: '#2b2350', icon: '😵‍💫' },
+  Festaioli: { bg: '#ec4899', text: '#ffffff', icon: '🥳' },
+  Scrocconi: { bg: '#a855f7', text: '#ffffff', icon: '🦝' },
 };
+
+const EFFECT_HIGHLIGHT_REGEX =
+  /(Quando entra|Finché è in gioco|All'inizio di ogni tuo turno:|Nel tuo prossimo turno|Fino al tuo prossimo turno|senza combinazione di dadi|rimanda in mano|non può scegliere|girare un dado|salta il suo prossimo turno|2↔6|3↔5|1↔6|2↔5|3↔4|\b\d+(?:[–-]\d+)?\s*(?:getton[ie]|dad[io]|volt[ae]|carte?)?|\b(?:Incassa|Gioca|Mercato|Obiettivo|ruba(?:gli|re)?|prend[ie]|prendono|perd[ie]|perdono|scambi(?:a|are)?|gratis|GRATIS|massimo|doppi[ao]?|4 dadi|5 o 6|6 o 7|1–2)\b)/gi;
+
+function renderFormattedEffectText(text: string): React.ReactNode {
+  const cleaned = text.replace(/(Quando entra|Finché è in gioco):/gi, '$1');
+  const parts = cleaned.split(EFFECT_HIGHLIGHT_REGEX);
+  return parts.map((part, idx) => {
+    if (!part) return null;
+    const isMatch = idx % 2 === 1;
+    if (!isMatch) {
+      return <React.Fragment key={idx}>{part}</React.Fragment>;
+    }
+    const lower = part.toLowerCase();
+    const isQuandoEntra = lower.startsWith('quando entra');
+    const isFincheInGioco = lower.startsWith('finché è in gioco');
+    const isDanger =
+      isQuandoEntra ||
+      lower.includes('ruba') ||
+      lower.includes('perd') ||
+      lower.includes('salta') ||
+      lower.includes('rimanda') ||
+      lower.includes('non può');
+
+    return (
+      <strong
+        key={idx}
+        style={{
+          fontWeight: 900,
+          color: isDanger ? '#c93b2b' : isFincheInGioco ? '#1d4ed8' : '#2b2350',
+        }}
+      >
+        {part}
+      </strong>
+    );
+  });
+}
 
 function renderFriendStickerIllustration(card: CardData) {
   if (card.photoUrl && card.photoUrl.trim().length > 0) {
@@ -154,7 +191,7 @@ function renderFriendStickerIllustration(card: CardData) {
   );
 }
 
-export const CardComponent: React.FC<CardComponentProps> = ({
+export const CardComponent: React.FC<CardComponentProps> = React.memo(({
   card,
   faceDown = false,
   size = 'md',
@@ -164,8 +201,9 @@ export const CardComponent: React.FC<CardComponentProps> = ({
   onClick,
   hideZoomButton = false,
 }) => {
-  // Dimensioni carte molto più grandi e leggibili (Step 1)
+  // Dimensioni carte leggibili (xs compatta sul tavolo avversario, sm/md/lg grandi)
   const widthMap = {
+    xs: '118px',
     sm: '182px',
     md: '238px',
     lg: '312px',
@@ -234,7 +272,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
 
   const isHolo = card.rarity === 'PROMO';
   const effectStyle = EFFECT_TYPE_COLORS[card.effectType] || EFFECT_TYPE_COLORS.Aiuto;
-  const classStyle = CLASS_COLORS[card.cardClass] || { bg: '#e2e8f0', text: '#2b2350' };
+  const classStyle = CLASS_COLORS[card.cardClass] || { bg: '#e2e8f0', text: '#2b2350', icon: '🃏' };
   const displayedCost = effectiveCost !== undefined ? effectiveCost : card.cost;
   const hasDiscount = effectiveCost !== undefined && effectiveCost < card.cost;
 
@@ -294,51 +332,114 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: size === 'sm' ? '5px 6px 0' : '7px 8px 0',
+            padding: size === 'xs' ? '4px 4px 0' : size === 'sm' ? '5px 6px 0' : '7px 8px 0',
             zIndex: 2,
             gap: '4px',
+            flexShrink: 0,
           }}
         >
           <div
             title={`Costo: ${displayedCost} gettoni`}
             style={{
-              width: size === 'sm' ? '34px' : size === 'lg' ? '44px' : '38px',
-              height: size === 'sm' ? '34px' : size === 'lg' ? '44px' : '38px',
+              position: 'relative',
+              width:
+                size === 'xs'
+                  ? '28px'
+                  : size === 'sm'
+                  ? '36px'
+                  : size === 'lg'
+                  ? '46px'
+                  : '40px',
+              height:
+                size === 'xs'
+                  ? '28px'
+                  : size === 'sm'
+                  ? '36px'
+                  : size === 'lg'
+                  ? '46px'
+                  : '40px',
               borderRadius: '999px',
               background: hasDiscount ? '#22c55e' : '#ffd166',
               color: '#2b2350',
-              border: '3px solid #2b2350',
-              boxShadow: '0 2px 0 #2b2350',
+              border: size === 'xs' ? '2px solid #2b2350' : '3px solid #2b2350',
+              boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.65), 0 2px 0 #2b2350',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontFamily: 'var(--font-title)',
-              fontSize: size === 'sm' ? '1.15rem' : size === 'lg' ? '1.45rem' : '1.3rem',
+              fontSize:
+                size === 'xs'
+                  ? '0.96rem'
+                  : size === 'sm'
+                  ? '1.2rem'
+                  : size === 'lg'
+                  ? '1.52rem'
+                  : '1.35rem',
               fontWeight: 900,
               flexShrink: 0,
+              overflow: 'hidden',
             }}
           >
-            {displayedCost}
+            {/* Layer sottostante con simbolo coin */}
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize:
+                  size === 'xs'
+                    ? '1.35rem'
+                    : size === 'sm'
+                    ? '1.75rem'
+                    : size === 'lg'
+                    ? '2.25rem'
+                    : '1.95rem',
+                opacity: 0.42,
+                pointerEvents: 'none',
+                zIndex: 1,
+                lineHeight: 1,
+              }}
+            >
+              🪙
+            </span>
+            <span
+              style={{
+                position: 'relative',
+                zIndex: 2,
+                lineHeight: 1,
+                textShadow:
+                  '0 1px 0 #fffdf6, 0 -1px 0 #fffdf6, 1px 0 0 #fffdf6, -1px 0 0 #fffdf6',
+              }}
+            >
+              {displayedCost}
+            </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
             <span
+              title={`Classe: ${card.cardClass}`}
               style={{
                 background: classStyle.bg,
                 color: classStyle.text,
                 border: '2px solid #2b2350',
                 borderRadius: '999px',
-                padding: size === 'sm' ? '2px 8px' : '3px 10px',
-                fontFamily: 'var(--font-effect)',
-                fontSize: size === 'sm' ? '0.74rem' : size === 'lg' ? '0.9rem' : '0.82rem',
-                fontWeight: 800,
+                width: size === 'xs' ? '26px' : size === 'sm' ? '32px' : '36px',
+                height: size === 'xs' ? '26px' : size === 'sm' ? '32px' : '36px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: size === 'xs' ? '0.9rem' : size === 'sm' ? '1.1rem' : '1.22rem',
                 boxShadow: '0 2px 0 #2b2350',
+                flexShrink: 0,
               }}
             >
-              {card.cardClass}
+              {classStyle.icon}
             </span>
 
-            {!hideZoomButton && (
+            {!hideZoomButton && size !== 'xs' && (
               <button
                 type="button"
                 title="Ingrandisci e leggi la carta"
@@ -366,11 +467,12 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           </div>
         </div>
 
-        {/* AREA FOTO AMICO SCONTORNATA */}
+        {/* AREA FOTO AMICO SCONTORNATA (Flessibile per non far strabordare mai il box effetto) */}
         <div
           style={{
-            flex: 1,
-            minHeight: size === 'sm' ? '64px' : size === 'lg' ? '125px' : '88px',
+            flex: '1 1 0%',
+            minHeight: size === 'xs' ? '34px' : size === 'sm' ? '48px' : '72px',
+            overflow: 'hidden',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -381,32 +483,40 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           {renderFriendStickerIllustration(card)}
         </div>
 
-        {/* ETICHETTA NOME CORALLO #ea5444 */}
+        {/* ETICHETTA NOME CORALLO #ea5444 (Titolo ben visibile e leggibile) */}
         <div
           className="lamen-name-banner"
           style={{
-            padding: size === 'sm' ? '4px 6px' : '5px 8px',
+            padding: size === 'xs' ? '3px 4px' : size === 'sm' ? '5px 7px' : '6px 9px',
             textAlign: 'center',
+            flexShrink: 0,
           }}
         >
           <div
             style={{
-              fontSize: size === 'sm' ? '0.86rem' : size === 'lg' ? '1.15rem' : '0.98rem',
-              lineHeight: 1.12,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              fontSize:
+                size === 'xs'
+                  ? '0.78rem'
+                  : size === 'sm'
+                  ? '0.96rem'
+                  : size === 'lg'
+                  ? '1.3rem'
+                  : '1.12rem',
+              lineHeight: 1.08,
+              letterSpacing: '0.01em',
+              wordBreak: 'break-word',
             }}
           >
             {card.name}
           </div>
-          {card.version && (
+          {card.version && size !== 'xs' && (
             <div
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: size === 'sm' ? '0.68rem' : size === 'lg' ? '0.82rem' : '0.74rem',
+                fontSize: size === 'sm' ? '0.68rem' : size === 'lg' ? '0.84rem' : '0.75rem',
                 fontWeight: 800,
                 opacity: 0.96,
+                marginTop: '1px',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -417,17 +527,19 @@ export const CardComponent: React.FC<CardComponentProps> = ({
           )}
         </div>
 
-        {/* BOX EFFETTO GRANDE E SEMPRE LEGGIBILE (Nessun troncamento illeggibile) */}
+        {/* BOX EFFETTO COMPATTO, DETTAGLIATO E CON PAROLE CHIAVE IN GRASSETTO */}
         <div
           style={{
             background: '#fffdf6',
             color: '#2b2350',
-            padding: size === 'sm' ? '6px 7px' : size === 'lg' ? '9px 11px' : '7px 9px',
-            minHeight: size === 'sm' ? '74px' : size === 'lg' ? '114px' : '92px',
+            padding: size === 'xs' ? '4px 5px' : size === 'sm' ? '5px 7px' : '7px 9px',
+            flexShrink: 0,
+            maxHeight: size === 'xs' ? '46%' : size === 'sm' ? '44%' : '42%',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            gap: '4px',
+            gap: '3px',
+            overflow: 'hidden',
           }}
         >
           <div
@@ -436,48 +548,64 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '4px',
+              flexShrink: 0,
             }}
           >
-            <span
-              style={{
-                background: effectStyle.bg,
-                color: effectStyle.text,
-                borderRadius: '6px',
-                padding: '1px 6px',
-                fontFamily: 'var(--font-effect)',
-                fontSize: size === 'sm' ? '0.68rem' : size === 'lg' ? '0.8rem' : '0.74rem',
-                fontWeight: 700,
-                border: '1.5px solid #2b2350',
-              }}
-            >
-              {effectStyle.icon} {card.effectType.toUpperCase()}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span
+                title={`Tipo: ${card.effectType}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: size === 'xs' ? '0.9rem' : size === 'sm' ? '1.05rem' : '1.15rem',
+                  lineHeight: 1,
+                }}
+              >
+                {effectStyle.icon}
+              </span>
+            </div>
 
-            <span
-              style={{
-                fontSize: size === 'sm' ? '0.66rem' : '0.72rem',
-                fontWeight: 800,
-                opacity: 0.8,
-              }}
-            >
-              #{card.setNumber} {card.rarity === 'PROMO' ? '✨ PROMO' : ''}
-            </span>
+            {size !== 'xs' && (
+              <span
+                title={`Carta #${card.setNumber} • ${card.rarity}`}
+                style={{
+                  fontSize: size === 'sm' ? '0.68rem' : '0.74rem',
+                  fontWeight: 900,
+                  opacity: 0.78,
+                }}
+              >
+                #{card.setNumber}
+                {card.rarity === 'PROMO' ? ' ✨' : card.rarity === 'Rara' ? ' ⭐' : ''}
+              </span>
+            )}
           </div>
 
           <div
             style={{
               fontFamily: 'var(--font-body)',
-              fontSize: size === 'sm' ? '0.82rem' : size === 'lg' ? '0.98rem' : '0.88rem',
-              fontWeight: 800,
-              lineHeight: 1.24,
+              fontSize:
+                size === 'xs'
+                  ? '0.66rem'
+                  : size === 'sm'
+                  ? '0.78rem'
+                  : size === 'lg'
+                  ? '0.96rem'
+                  : '0.85rem',
+              fontWeight: 600,
+              lineHeight: 1.2,
               color: '#2b2350',
               wordBreak: 'break-word',
+              overflowY: 'auto',
+              display: size === 'xs' ? '-webkit-box' : 'block',
+              WebkitLineClamp: size === 'xs' ? 2 : undefined,
+              WebkitBoxOrient: size === 'xs' ? 'vertical' : undefined,
             }}
           >
-            {card.effectText}
+            {renderFormattedEffectText(card.effectText)}
           </div>
         </div>
       </div>
     </div>
   );
-};
+});

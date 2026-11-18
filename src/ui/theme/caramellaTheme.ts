@@ -25,19 +25,19 @@ export const CLASS_THEME: Record<
   Utenti: {
     bg: '#fbbf24',
     text: '#2b2350',
-    emoji: '🤪',
+    emoji: '😵‍💫',
     tagline: 'Sfattonati: sviste, scommesse coi dadi ed effetti imprevedibili',
   },
   Festaioli: {
     bg: '#ec4899',
     text: '#ffffff',
-    emoji: '🎉',
+    emoji: '🥳',
     tagline: 'L’anima del gruppo: gettoni a tutti, Mercato gratis e doppie giocate',
   },
   Scrocconi: {
     bg: '#a855f7',
     text: '#ffffff',
-    emoji: '🦊',
+    emoji: '🦝',
     tagline: 'Vivono alle spalle degli altri: rubano gettoni, spiano e sfrattano',
   },
 };
@@ -46,7 +46,7 @@ export const EFFECT_TYPE_THEME: Record<
   string,
   { bg: string; text: string; icon: string; label: string }
 > = {
-  Aiuto: { bg: '#22c55e', text: '#ffffff', icon: '⚡', label: 'AIUTO' },
+  Aiuto: { bg: '#22c55e', text: '#ffffff', icon: '💡', label: 'AIUTO' },
   Ostacolo: { bg: '#f97316', text: '#ffffff', icon: '🎯', label: 'OSTACOLO' },
   Caos: { bg: '#8b5cf6', text: '#ffffff', icon: '🌀', label: 'CAOS' },
 };

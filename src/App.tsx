@@ -39,6 +39,9 @@ const AppShell: React.FC = () => {
     : 0;
   const isTripActive = Boolean(inRoom && gameState.invertComboTableUntilPlayerId !== null);
 
+  const isTabletopMode =
+    inRoom && (gameState.phase === 'PLAYING' || gameState.phase === 'GAME_OVER');
+
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       {/* BARRA SUPERIORE FISSA SEMPRE A SCHERMO (Contatore Gettoni + Info Partita + Impostazioni) */}
@@ -49,12 +52,12 @@ const AppShell: React.FC = () => {
         style={{
           flex: 1,
           width: '100%',
-          maxWidth: '1180px',
+          maxWidth: isTabletopMode ? '1440px' : '1180px',
           margin: '0 auto',
-          padding: '16px 14px 40px',
+          padding: isTabletopMode ? '8px 10px 0' : '16px 14px 40px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '18px',
+          gap: isTabletopMode ? '8px' : '18px',
         }}
       >
         {!inRoom && <HomeScreen />}

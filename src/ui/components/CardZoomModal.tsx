@@ -57,10 +57,10 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({
 
   const timingLabel =
     card.effectModel.timing === 'ON_ENTER'
-      ? '⚡ Quando entra in gioco (si attiva appena giocata)'
+      ? 'Quando entra in gioco (si attiva appena giocata)'
       : card.effectModel.timing === 'WHILE_IN_PLAY'
-      ? '♾️ Finché è in gioco (attivo finché resta scoperta davanti a te)'
-      : '✨ Passivo / Regola speciale della carta';
+      ? 'Finché è in gioco (attivo finché resta scoperta davanti a te)'
+      : 'Passivo / Regola speciale della carta';
 
   return (
     <div
@@ -68,8 +68,7 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({
         position: 'fixed',
         inset: 0,
         zIndex: 250,
-        background: 'rgba(18, 13, 40, 0.88)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(18, 13, 40, 0.86)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -171,9 +170,9 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({
             }}
           >
             <div style={{ fontSize: '1.05rem', fontWeight: 900 }}>
-              🪙 Costo in Gettoni:{' '}
+              Costo:{' '}
               <span style={{ color: '#c93b2b', fontSize: '1.2rem' }}>
-                {effectiveCost !== undefined ? effectiveCost : card.cost} gettoni
+                {effectiveCost !== undefined ? effectiveCost : card.cost} 🪙
               </span>
               {effectiveCost !== undefined && effectiveCost < card.cost && (
                 <span style={{ marginLeft: '6px', fontSize: '0.9rem', color: '#158046' }}>
@@ -207,14 +206,10 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({
             >
               <span
                 style={{
-                  background: effectInfo.bg,
-                  color: effectInfo.text,
-                  border: '2px solid #2b2350',
-                  borderRadius: '8px',
-                  padding: '3px 10px',
+                  color: '#2b2350',
                   fontFamily: 'var(--font-effect)',
-                  fontSize: '0.9rem',
-                  fontWeight: 800,
+                  fontSize: '0.95rem',
+                  fontWeight: 900,
                 }}
               >
                 {effectInfo.icon} {effectInfo.label}

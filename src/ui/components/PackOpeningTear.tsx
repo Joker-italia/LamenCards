@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CardData } from '../../engine/types';
 import { CardComponent } from './CardComponent';
 import { openCardZoom } from './CardZoomModal';
@@ -19,8 +19,23 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
   const [tearProgress, setTearProgress] = useState<number>(0);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [revealedCards, setRevealedCards] = useState<CardData[] | null>(null);
-  const [flippedIndices, setFlippedIndices] = useState<number[]>([]);
+  const [openedPackIndex, setOpenedPackIndex] = useState<number>(packNumber);
+
   const packRef = useRef<HTMLDivElement | null>(null);
+  const isDraggingRef = useRef<boolean>(false);
+  const startXRef = useRef<number>(0);
+  const progressRef = useRef<number>(0);
+  const hasTriggeredRef = useRef<boolean>(false);
+
+  // Ogni volta che cambia la bustina (es. da #1 a #2), azzera lo stato dello strappo
+  useEffect(() => {
+    progressRef.current = 0;
+    isDraggingRef.current = false;
+    hasTriggeredRef.current = false;
+    setTearProgress(0);
+    setIsDragging(false);
+    setRevealedCards(null);
+  }, [packNumber]);
 
   // Calcola il colore del bagliore interno in base alla rarità massima contenuta nella bustina
   const hasPromo = nextPackCards.some((c) => c.rarity === 'PROMO');
@@ -39,52 +54,80 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
     : 'rgba(92, 225, 230, 0.8)';
 
   const triggerCompleteTear = () => {
+    if (hasTriggeredRef.current) return;
+    hasTriggeredRef.current = true;
+    isDraggingRef.current = false;
+    progressRef.current = 100;
+
     setIsDragging(false);
     setTearProgress(100);
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate([30, 40, 70]);
     }
-    const cardsSnapshot = [...nextPackCards];
-    setRevealedCards(cardsSnapshot);
-    setFlippedIndices([0, 1, 2, 3, 4]);
-    onPackTornOpen();
+    setOpenedPackIndex(packNumber);
+    setRevealedCards([...nextPackCards]);
   };
 
   const updateDragFromClientX = (clientX: number) => {
-    if (!packRef.current) return;
+    if (!packRef.current || hasTriggeredRef.current) return;
     const rect = packRef.current.getBoundingClientRect();
-    const relX = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const pct = Math.round((relX / rect.width) * 100);
+    const width = Math.max(1, rect.width);
 
-    if (pct > tearProgress) {
+    // Calcola sia la posizione lungo la bustina sia la distanza trascinata dal punto iniziale
+    const absPct = ((clientX - rect.left) / width) * 100;
+    const deltaPct = ((clientX - startXRef.current) / (width * 0.65)) * 100;
+    const rawPct = Math.max(0, Math.min(100, Math.max(absPct, deltaPct)));
+    const pct = Math.round(rawPct);
+
+    if (pct > progressRef.current) {
+      progressRef.current = pct;
       setTearProgress(pct);
-      if (pct % 18 === 0 && typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(12);
+      if (pct % 20 === 0 && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(10);
       }
     }
 
-    if (pct >= 75) {
+    if (pct >= 72) {
       triggerCompleteTear();
     }
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (hasTriggeredRef.current) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore on unsupported browsers
+    }
+    isDraggingRef.current = true;
+    startXRef.current = e.clientX;
     setIsDragging(true);
     updateDragFromClientX(e.clientX);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current || hasTriggeredRef.current) return;
     updateDragFromClientX(e.clientX);
   };
 
   const handlePointerUp = () => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
     setIsDragging(false);
-    if (tearProgress < 75) {
+    if (!hasTriggeredRef.current && progressRef.current < 72) {
+      progressRef.current = 0;
       setTearProgress(0);
     }
+  };
+
+  const handleContinueAfterReveal = () => {
+    // Sposta effettivamente le carte nel pool del giocatore e passa alla bustina #2 (o al Draft)
+    progressRef.current = 0;
+    isDraggingRef.current = false;
+    hasTriggeredRef.current = false;
+    setTearProgress(0);
+    setRevealedCards(null);
+    onPackTornOpen();
   };
 
   // Se abbiamo appena strappato una bustina, mostra le 5 carte rivelate con animazione!
@@ -98,7 +141,7 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
           padding: '22px',
           textAlign: 'center',
           color: '#fffdf6',
-          boxShadow: `0 0 36px ${glowShadowColor}`,
+          boxShadow: `0 0 30px ${glowShadowColor}`,
         }}
       >
         <div
@@ -114,7 +157,7 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
             marginBottom: '8px',
           }}
         >
-          🎉 BUSTINA #{packNumber - 1} APERTA!
+          🎉 BUSTINA #{openedPackIndex} APERTA!
         </div>
 
         <h3 style={{ margin: '0 0 6px', fontFamily: 'var(--font-title)', fontSize: '1.65rem' }}>
@@ -133,35 +176,31 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
             marginBottom: '20px',
           }}
         >
-          {revealedCards.map((c, i) => {
-            const isFlipped = flippedIndices.includes(i);
-            return (
-              <div
-                key={c.id}
-                style={{
-                  animation: 'cardPopIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
-                  animationDelay: `${i * 0.08}s`,
-                }}
-              >
-                <CardComponent
-                  card={c}
-                  faceDown={!isFlipped}
-                  size="sm"
-                  onClick={() => openCardZoom({ card: c })}
-                />
-              </div>
-            );
-          })}
+          {revealedCards.map((c, i) => (
+            <div
+              key={c.id}
+              style={{
+                animation: 'cardPopIn 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+                animationDelay: `${i * 0.07}s`,
+              }}
+            >
+              <CardComponent
+                card={c}
+                size="sm"
+                onClick={() => openCardZoom({ card: c })}
+              />
+            </div>
+          ))}
         </div>
 
         <button
           type="button"
           className="btn-caramella btn-coral"
           style={{ fontSize: '1.1rem', padding: '12px 26px' }}
-          onClick={() => setRevealedCards(null)}
+          onClick={handleContinueAfterReveal}
         >
-          {packNumber <= totalPacks
-            ? `📦 Passa alla Bustina #${packNumber} di ${totalPacks} ➔`
+          {openedPackIndex < totalPacks
+            ? `📦 Passa alla Bustina #${openedPackIndex + 1} di ${totalPacks} ➔`
             : '✓ Vai alla Scelta dei 4 Titolari e 2 Riserve ➔'}
         </button>
       </div>
@@ -241,7 +280,7 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
         <div
           style={{
             position: 'relative',
-            height: '68px',
+            height: '72px',
             background: 'linear-gradient(135deg, #2b2350 0%, #3d326e 100%)',
             borderBottom: '3px dashed #ffd166',
             display: 'flex',
@@ -259,11 +298,10 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
               width: `${tearProgress}%`,
               background: glowColor,
               boxShadow: `0 0 24px ${glowShadowColor}`,
-              transition: isDragging ? 'none' : 'width 0.2s ease',
             }}
           />
 
-          {/* Linguetta non ancora strappata che si solleva */}
+          {/* Linguetta visiva */}
           <div
             style={{
               position: 'relative',
@@ -273,9 +311,10 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
               gap: '8px',
               fontFamily: 'var(--font-effect)',
               fontWeight: 900,
-              fontSize: '0.92rem',
+              fontSize: '0.94rem',
               color: tearProgress > 45 ? '#2b2350' : '#ffd166',
               textShadow: tearProgress > 45 ? 'none' : '0 2px 0 #000',
+              pointerEvents: 'none',
             }}
           >
             <span>✂️</span>
@@ -296,7 +335,7 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
                 transform: 'translateY(-50%)',
                 fontSize: '1.5rem',
                 zIndex: 5,
-                filter: 'drop-shadow(0 0 8px #ffffff)',
+                pointerEvents: 'none',
               }}
             >
               ✨
@@ -314,6 +353,7 @@ export const PackOpeningTear: React.FC<PackOpeningTearProps> = ({
             justifyContent: 'center',
             padding: '18px',
             position: 'relative',
+            pointerEvents: 'none',
           }}
         >
           <div

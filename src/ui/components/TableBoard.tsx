@@ -4,53 +4,64 @@ import { useGame } from '../state/GameContext';
 import { CardComponent } from './CardComponent';
 import { openCardZoom } from './CardZoomModal';
 
-export const TableBoard: React.FC = () => {
-  const { gameState, me, dispatchGameAction } = useGame();
-
+/**
+ * Zona superiore del tavolo: tutti gli avversari disposti attorno al panno verde
+ * con le loro carte scoperte appoggiate sul tavolo e un ventaglio compatto per le carte coperte in mano.
+ */
+export const OpponentsTableZone: React.FC = () => {
+  const { gameState, me } = useGame();
   if (!me) return null;
 
-  const myObjEval = evaluateObjective(me.played, me.objective, gameState.config.teamSize);
+  const opponents = gameState.players.filter((p) => p.id !== me.id);
 
   return (
-    <section
-      className="panel-night"
+    <div
       style={{
-        padding: '18px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px',
+        gap: '10px',
+        padding: '12px 14px 4px',
       }}
     >
-      {/* Intestazione Tavolo + Effetti Globali Attivi */}
+      {/* Intestazione compatta giro + eventuali effetti globali sul tavolo */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '10px',
-          borderBottom: '2px solid rgba(255, 253, 246, 0.2)',
-          paddingBottom: '10px',
+          gap: '8px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.35rem' }}>
-            🏟️ Carte Scoperte sul Tavolo (Giro #{gameState.turnNumber})
-          </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              background: 'rgba(15, 11, 35, 0.65)',
+              color: '#fffdf6',
+              border: '2px solid rgba(255, 253, 246, 0.25)',
+              borderRadius: '999px',
+              padding: '3px 12px',
+              fontFamily: 'var(--font-effect)',
+              fontSize: '0.88rem',
+              fontWeight: 800,
+            }}
+          >
+            🔄 Giro #{gameState.turnNumber}
+          </span>
 
           {gameState.othersFourDiceUntilPlayerId && (
             <span
               style={{
                 background: '#f97316',
                 color: '#ffffff',
-                border: '2px solid #fffdf6',
+                border: '2px solid #2b2350',
                 borderRadius: '999px',
                 padding: '3px 12px',
-                fontSize: '0.88rem',
+                fontSize: '0.86rem',
                 fontWeight: 900,
               }}
             >
-              😴 Sonno Contagioso attivo (4 dadi)
+              😴 Sonno Contagioso (4 dadi)
             </span>
           )}
 
@@ -59,236 +70,269 @@ export const TableBoard: React.FC = () => {
               style={{
                 background: '#8b5cf6',
                 color: '#ffffff',
-                border: '2px solid #fffdf6',
+                border: '2px solid #2b2350',
                 borderRadius: '999px',
                 padding: '3px 12px',
-                fontSize: '0.88rem',
+                fontSize: '0.86rem',
                 fontWeight: 900,
               }}
             >
-              🌀 Il Trip attivo (Costi 2↔6 e 3↔5 invertiti!)
+              🌀 Il Trip attivo (2↔6, 3↔5)
             </span>
           )}
         </div>
-
-        <div style={{ fontSize: '0.9rem', fontWeight: 700, opacity: 0.9 }}>
-          Tocca qualsiasi carta in tavola per ingrandirla 🔍
-        </div>
       </div>
 
-      {/* Griglia delle Squadre Scoperte di tutti i Giocatori */}
+      {/* Postazioni degli avversari attorno al lato superiore del tavolo */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '14px',
+          gridTemplateColumns: `repeat(${Math.max(1, Math.min(opponents.length, 3))}, minmax(210px, 1fr))`,
+          gap: '10px',
+          alignItems: 'start',
         }}
       >
-        {gameState.players.map((p, idx) => {
-          const isTurn = idx === gameState.currentPlayerIndex;
-          const isMe = p.id === me.id;
+        {opponents.map((opp) => {
+          const isTurn =
+            gameState.players[gameState.currentPlayerIndex]?.id === opp.id;
           const canSeeObj =
-            isMe ||
             gameState.config.objectiveVisibility === 'PUBLIC' ||
-            me.modifiers.revealedObjectivePlayerIds.includes(p.id);
+            me.modifiers.revealedObjectivePlayerIds.includes(opp.id);
 
           return (
             <div
-              key={p.id}
+              key={opp.id}
               style={{
-                background: isMe
-                  ? 'rgba(191, 240, 218, 0.14)'
-                  : 'rgba(255, 253, 246, 0.07)',
+                background: isTurn
+                  ? 'rgba(255, 209, 102, 0.14)'
+                  : 'rgba(11, 20, 26, 0.34)',
                 border: isTurn
-                  ? '3px solid #ffd166'
-                  : isMe
-                  ? '3px solid #bff0da'
-                  : '2px solid rgba(255, 253, 246, 0.22)',
+                  ? '2.5px solid #ffd166'
+                  : '1.5px solid rgba(255, 253, 246, 0.16)',
                 borderRadius: '18px',
-                padding: '14px',
+                padding: '10px 12px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '10px',
+                gap: '8px',
               }}
             >
-              {/* Riga Info Giocatore: Nome, Gettoni, Carte Coperte in Mano */}
+              {/* Nome + Gettoni + Carte coperte in mano */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  gap: '6px',
                   flexWrap: 'wrap',
-                  gap: '8px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {isTurn && (
                     <span
                       style={{
                         background: '#ffd166',
                         color: '#2b2350',
-                        border: '2px solid #2b2350',
                         borderRadius: '999px',
-                        padding: '2px 10px',
-                        fontSize: '0.82rem',
+                        padding: '1px 8px',
+                        fontSize: '0.76rem',
                         fontWeight: 900,
                       }}
                     >
-                      ▶ DI TURNO
+                      ▶
                     </span>
                   )}
                   <span
                     style={{
                       fontFamily: 'var(--font-title)',
-                      fontSize: '1.2rem',
-                      color: isMe ? '#bff0da' : '#fffdf6',
+                      fontSize: '1.12rem',
+                      color: isTurn ? '#ffd166' : '#fffdf6',
                     }}
                   >
-                    {p.name} {isMe ? '(Tu)' : ''}
+                    {opp.name}
                   </span>
                 </div>
 
-                {/* Badge Pubblici: Gettoni + Carte Coperte in Mano + Carte in Gioco */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span
                     style={{
                       background: '#ffd166',
                       color: '#2b2350',
                       border: '2px solid #2b2350',
                       borderRadius: '999px',
-                      padding: '3px 10px',
-                      fontSize: '0.9rem',
+                      padding: '1px 9px',
+                      fontSize: '0.86rem',
                       fontWeight: 900,
                     }}
                   >
-                    🪙 {p.tokens}
+                    🪙 {opp.tokens}
                   </span>
-
                   <span
                     style={{
-                      background: 'rgba(255, 253, 246, 0.16)',
+                      background: 'rgba(255, 253, 246, 0.14)',
                       color: '#fffdf6',
-                      border: '2px solid rgba(255, 253, 246, 0.35)',
+                      border: '1.5px solid rgba(255, 253, 246, 0.3)',
                       borderRadius: '999px',
-                      padding: '3px 10px',
-                      fontSize: '0.88rem',
+                      padding: '1px 8px',
+                      fontSize: '0.82rem',
                       fontWeight: 800,
                     }}
-                    title="Carte coperte ancora in mano"
+                    title="Carte coperte in mano"
                   >
-                    🃏 {p.hand.length} in mano
-                  </span>
-
-                  <span
-                    style={{
-                      background: p.played.length >= gameState.config.teamSize ? '#22c55e' : '#2b2350',
-                      color: '#fffdf6',
-                      border: '2px solid #fffdf6',
-                      borderRadius: '999px',
-                      padding: '3px 10px',
-                      fontSize: '0.88rem',
-                      fontWeight: 900,
-                    }}
-                  >
-                    ⚡ {p.played.length}/{gameState.config.teamSize} in campo
+                    🃏 {opp.hand.length}
                   </span>
                 </div>
               </div>
 
-              {/* Obiettivo Visibile (se pubblico o spiato con Il Ficcanaso) */}
-              {canSeeObj && p.objective && (
+              {canSeeObj && opp.objective && (
                 <div
                   style={{
-                    background: 'rgba(255, 209, 102, 0.16)',
-                    border: '1.5px solid rgba(255, 209, 102, 0.5)',
-                    borderRadius: '10px',
-                    padding: '6px 10px',
-                    fontSize: '0.88rem',
+                    fontSize: '0.82rem',
                     fontWeight: 800,
                     color: '#ffd166',
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    padding: '4px 8px',
+                    borderRadius: '8px',
                   }}
                 >
-                  🎯 {isMe ? 'Il tuo Obiettivo:' : 'Obiettivo spiato:'}{' '}
-                  <strong>{p.objective.title}</strong> — {p.objective.description}
+                  🎯 {opp.objective.title}
                 </div>
               )}
 
-              {/* Carte Giocate Scoperte davanti a questo Giocatore */}
-              {p.played.length === 0 ? (
-                <div
-                  style={{
-                    padding: '16px',
-                    borderRadius: '14px',
-                    border: '2px dashed rgba(255, 253, 246, 0.25)',
-                    textAlign: 'center',
-                    fontSize: '0.94rem',
-                    opacity: 0.8,
-                    fontWeight: 700,
-                  }}
-                >
-                  Nessuna carta ancora schierata in tavola.
-                </div>
-              ) : (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    overflowX: 'auto',
-                    padding: '4px 2px 8px',
-                  }}
-                >
-                  {p.played.map((card) => {
-                    const isMismatched =
-                      isMe && (myObjEval?.mismatchedCardIds.includes(card.id) || false);
-
-                    return (
-                      <div
-                        key={card.id}
-                        style={{
-                          flexShrink: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: '6px',
-                        }}
-                      >
-                        <CardComponent
-                          card={card}
-                          size="sm"
-                          selectedBadge={isMismatched ? '⚠️ VIOLAZIONE' : 'IN CAMPO'}
-                          onClick={() =>
-                            openCardZoom({
-                              card,
-                              badge: isMismatched ? '⚠️ VIOLAZIONE OBIETTIVO' : `IN CAMPO (${p.name})`,
-                            })
-                          }
-                        />
-                        {isMismatched &&
-                          gameState.config.onObjectiveMismatch === 'ALLOW_RETURN_TO_HAND' && (
-                            <button
-                              type="button"
-                              className="btn-caramella btn-gold"
-                              style={{ padding: '6px 10px', minHeight: '38px', fontSize: '0.86rem' }}
-                              onClick={() =>
-                                dispatchGameAction({
-                                  type: 'RETURN_MISMATCHED_CARD_TO_HAND',
-                                  playerId: me.id,
-                                  playedCardId: card.id,
-                                })
-                              }
-                            >
-                              ↩ Riprendi in mano
-                            </button>
-                          )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* Carte scoperte appoggiate sul tavolo davanti all'avversario */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  overflowX: 'auto',
+                  paddingBottom: '2px',
+                  minHeight: '64px',
+                  alignItems: 'center',
+                }}
+              >
+                {opp.played.length === 0 ? (
+                  <span
+                    style={{
+                      fontSize: '0.84rem',
+                      color: 'rgba(255, 253, 246, 0.5)',
+                      fontWeight: 700,
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    Nessuna carta sul tavolo
+                  </span>
+                ) : (
+                  opp.played.map((card) => (
+                    <div key={card.id} style={{ flexShrink: 0 }}>
+                      <CardComponent
+                        card={card}
+                        size="xs"
+                        onClick={() =>
+                          openCardZoom({
+                            card,
+                            badge: `IN CAMPO (${opp.name})`,
+                          })
+                        }
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           );
         })}
       </div>
-    </section>
+    </div>
+  );
+};
+
+/**
+ * Zona inferiore del tavolo davanti a te: i 4 slot della tua squadra sul panno verde.
+ */
+export const MyTableZone: React.FC = () => {
+  const { gameState, me, dispatchGameAction } = useGame();
+  if (!me) return null;
+
+  const myObjEval = evaluateObjective(me.played, me.objective, gameState.config.teamSize);
+  const emptySlots = Math.max(0, gameState.config.teamSize - me.played.length);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 14px 6px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: '10px',
+          justifyContent: 'center',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        {me.played.map((card) => {
+          const isMismatched = myObjEval.mismatchedCardIds.includes(card.id);
+          return (
+            <div
+              key={card.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <CardComponent
+                card={card}
+                size="xs"
+                selectedBadge={isMismatched ? '⚠️ VIOLAZIONE' : undefined}
+                onClick={() =>
+                  openCardZoom({
+                    card,
+                    badge: isMismatched ? '⚠️ VIOLAZIONE OBIETTIVO' : 'IN CAMPO (TUA)',
+                  })
+                }
+              />
+              {isMismatched &&
+                gameState.config.onObjectiveMismatch === 'ALLOW_RETURN_TO_HAND' && (
+                  <button
+                    type="button"
+                    className="btn-caramella btn-gold"
+                    style={{ padding: '4px 8px', minHeight: '32px', fontSize: '0.8rem' }}
+                    onClick={() =>
+                      dispatchGameAction({
+                        type: 'RETURN_MISMATCHED_CARD_TO_HAND',
+                        playerId: me.id,
+                        playedCardId: card.id,
+                      })
+                    }
+                  >
+                    ↩ Riprendi
+                  </button>
+                )}
+            </div>
+          );
+        })}
+
+        {Array.from({ length: emptySlots }).map((_, i) => (
+          <div key={`slot-${i}`} className="table-card-slot">
+            Slot {me.played.length + i + 1}/{gameState.config.teamSize}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const TableBoard: React.FC = () => {
+  return (
+    <>
+      <OpponentsTableZone />
+      <MyTableZone />
+    </>
   );
 };

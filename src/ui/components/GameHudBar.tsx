@@ -194,7 +194,7 @@ export const GameHudBar: React.FC = () => {
           style={{ minHeight: '42px', padding: '6px 12px', fontSize: '0.9rem' }}
           onClick={() => setShowReferenceModal(true)}
         >
-          📖 Combinazioni Dadi
+          📖 Guida
         </button>
 
         {/* Menu Impostazioni Raggruppato */}
